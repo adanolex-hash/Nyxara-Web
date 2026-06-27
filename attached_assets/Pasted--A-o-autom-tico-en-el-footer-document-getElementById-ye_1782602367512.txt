@@ -1,0 +1,183 @@
+// Año automático en el footer
+document.getElementById('year').textContent = new Date().getFullYear();
+
+// -------- Age gate --------
+const ageGate = document.getElementById('age-gate');
+const siteWrapper = document.getElementById('site-wrapper');
+const btnEnter = document.getElementById('btn-enter');
+const btnLeave = document.getElementById('btn-leave');
+
+btnEnter.addEventListener('click', () => {
+  ageGate.style.display = 'none';
+  siteWrapper.classList.remove('hidden');
+});
+
+btnLeave.addEventListener('click', () => {
+  window.location.href = 'https://www.google.com';
+});
+
+// -------- Modales de imágenes --------
+const openWomen = document.getElementById('open-women');
+const openMen = document.getElementById('open-men');
+const modalWomen = document.getElementById('modal-women');
+const modalMen = document.getElementById('modal-men');
+const closeButtons = document.querySelectorAll('.modal__close');
+
+if (openWomen && modalWomen) {
+  openWomen.addEventListener('click', () => {
+    modalWomen.style.display = 'flex';
+  });
+}
+
+if (openMen && modalMen) {
+  openMen.addEventListener('click', () => {
+    modalMen.style.display = 'flex';
+  });
+}
+
+closeButtons.forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    const id = e.target.getAttribute('data-close');
+    document.getElementById(id).style.display = 'none';
+  });
+});
+
+[modalWomen, modalMen].forEach(modal => {
+  if (!modal) return;
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      modal.style.display = 'none';
+    }
+  });
+});
+
+// -------- Modal autenticación (maqueta) --------
+const authModal = document.getElementById('auth-modal');
+const btnOpenAuth = document.getElementById('btn-open-auth');
+
+if (btnOpenAuth && authModal) {
+  btnOpenAuth.addEventListener('click', () => {
+    authModal.style.display = 'flex';
+  });
+
+  authModal.addEventListener('click', (e) => {
+    if (e.target === authModal) {
+      authModal.style.display = 'none';
+    }
+  });
+}
+
+// Validación básica del formulario de login/registro
+const authForm = document.getElementById('auth-form');
+
+function setError(id, msg) {
+  const input = document.getElementById(id);
+  const error = document.querySelector(`.error-msg[data-for="${id}"]`);
+  if (!input || !error) return;
+  if (msg) {
+    input.classList.add('error');
+    error.textContent = msg;
+  } else {
+    input.classList.remove('error');
+    error.textContent = '';
+  }
+}
+
+if (authForm) {
+  authForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+
+    const email = document.getElementById('auth-email').value.trim();
+    const pwd = document.getElementById('auth-password').value;
+
+    let valid = true;
+
+    if (!email) {
+      setError('auth-email', 'El correo es obligatorio.');
+      valid = false;
+    } else if (!email.includes('@')) {
+      setError('auth-email', 'Introduce un correo válido.');
+      valid = false;
+    } else {
+      setError('auth-email', '');
+    }
+
+    if (!pwd) {
+      setError('auth-password', 'La contraseña es obligatoria.');
+      valid = false;
+    } else if (pwd.length < 6) {
+      setError('auth-password', 'Mínimo 6 caracteres.');
+      valid = false;
+    } else {
+      setError('auth-password', '');
+    }
+
+    if (valid) {
+      alert('Demo: aquí se conectará el sistema real de autenticación.');
+    }
+  });
+}
+
+// -------- Validación formulario de subida (maqueta) --------
+const uploadForm = document.getElementById('upload-form');
+
+function setUploadError(id, msg) {
+  const field = document.getElementById(id);
+  const error = document.querySelector(`.error-msg[data-for="${id}"]`);
+  if (!field || !error) return;
+  if (msg) {
+    field.classList.add('error');
+    error.textContent = msg;
+  } else {
+    field.classList.remove('error');
+    error.textContent = '';
+  }
+}
+
+if (uploadForm) {
+  uploadForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+
+    const title = document.getElementById('video-title').value.trim();
+    const desc = document.getElementById('video-description').value.trim();
+    const file = document.getElementById('video-file').files[0];
+
+    let valid = true;
+
+    if (!title) {
+      setUploadError('video-title', 'El título es obligatorio.');
+      valid = false;
+    } else {
+      setUploadError('video-title', '');
+    }
+
+    if (desc.length > 500) {
+      setUploadError('video-description', 'Máximo 500 caracteres.');
+      valid = false;
+    } else {
+      setUploadError('video-description', '');
+    }
+
+    if (!file) {
+      setUploadError('video-file', 'Selecciona un archivo de video.');
+      valid = false;
+    } else {
+      const allowed = ['video/mp4', 'video/webm', 'video/ogg'];
+      if (!allowed.includes(file.type)) {
+        setUploadError('video-file', 'Formato no permitido. Usa MP4, WEBM u OGG.');
+        valid = false;
+      } else if (file.size > 500 * 1024 * 1024) {
+        // 500 MB solo como ejemplo
+        setUploadError('video-file', 'El archivo es demasiado grande (máx. 500 MB en esta demo).');
+        valid = false;
+      } else {
+        setUploadError('video-file', '');
+      }
+    }
+
+    if (valid) {
+      alert('Demo: el formulario es válido, aquí se enviaría el video a tu servidor o storage.');
+      uploadForm.reset();
+    }
+  });
+}

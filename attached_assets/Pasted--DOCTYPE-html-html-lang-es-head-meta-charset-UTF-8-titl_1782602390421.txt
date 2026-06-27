@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Nyxara</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Nyxara: sitio para adultos, contenido erótico. Acceso solo para mayores de 18 años.">
+  <meta name="robots" content="noindex,nofollow">
+  <link rel="stylesheet" href="CSS/styles.css">
+</head>
+<body>
+
+  <!-- Pantalla de verificación de edad -->
+  <div id="age-gate" class="age-gate">
+    <div class="age-gate__content">
+      <h1>Contenido solo para mayores de 18 años</h1>
+      <p>Este sitio contiene contenido erótico dirigido exclusivamente a personas adultas. Al continuar declaras que eres mayor de edad en tu país y aceptas nuestra política de privacidad y de cookies.</p>
+      <div class="age-gate__buttons">
+        <button id="btn-enter">Soy mayor de 18</button>
+        <button id="btn-leave">Salir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Contenido principal -->
+  <div id="site-wrapper" class="site-wrapper hidden">
+
+    <!-- Barra superior -->
+    <header class="topbar">
+      <div class="topbar__logo">
+        <img src="IMG/Intro_Nyxara.jpeg" alt="Nyxara">
+      </div>
+
+      <div class="topbar__search">
+        <input type="text" id="search-input" placeholder="Buscar videos…">
+        <button id="search-btn">Buscar</button>
+      </div>
+
+      <div class="topbar__right">
+        <button id="btn-open-auth" class="topbar__user">Iniciar sesión</button>
+      </div>
+    </header>
+
+    <!-- Menú horizontal -->
+    <nav class="main-menu" id="main-menu">
+      <a href="#inicio">INICIO</a>
+      <a href="#mejor">LO MEJOR</a>
+      <a href="#categorias">CATEGORÍAS</a>
+      <a href="#imagenes">IMÁGENES</a>
+      <a href="#subir">SUBIR VIDEO</a>
+      <a href="#legal">LEGAL</a>
+      <a href="#privacidad">PRIVACIDAD</a>
+      <a href="#cookies">COOKIES</a>
+    </nav>
+
+    <!-- Contenido -->
+    <main class="page">
+
+      <!-- Hero -->
+      <section class="hero hero--portal" id="inicio">
+        <img src="IMG/Logo_Nyxara.jpeg" alt="Logo Nyxara" class="hero__logo">
+
+        <div class="hero__text hero__text--center">
+          <h1>Nyxara</h1>
+          <p>
+            Donde tus sueños más eróticos se hacen realidad y tus parafilias no serán juzgadas,
+            solo con un click de tu dedo, bienvenida o bienvenido a Nyxara.
+          </p>
+        </div>
+      </section>
+
+      <!-- Feed de videos -->
+      <section class="video-feed" id="mejor">
+        <h2>Videos recomendados</h2>
+        <div class="video-grid" id="video-grid">
+          <!-- Tarjetas de ejemplo (se podrían generar con JS más adelante) -->
+          <article class="video-card">
+            <div class="video-thumb">
+              <span class="video-duration">12:34</span>
+            </div>
+            <h3>Título de ejemplo 1</h3>
+            <p class="video-meta">1.2M vistas · hace 2 días</p>
+          </article>
+
+          <article class="video-card">
+            <div class="video-thumb">
+              <span class="video-duration">08:15</span>
+            </div>
+            <h3>Título de ejemplo 2</h3>
+            <p class="video-meta">890k vistas · hace 1 semana</p>
+          </article>
+
+          <article class="video-card">
+            <div class="video-thumb">
+              <span class="video-duration">05:47</span>
+            </div>
+            <h3>Título de ejemplo 3</h3>
+            <p class="video-meta">540k vistas · hace 3 horas</p>
+          </article>
+
+          <article class="video-card">
+            <div class="video-thumb">
+              <span class="video-duration">20:01</span>
+            </div>
+            <h3>Título de ejemplo 4</h3>
+            <p class="video-meta">2.3M vistas · hace 1 mes</p>
+          </article>
+        </div>
+      </section>
+
+      <!-- Botones de imágenes especiales -->
+      <section class="cta-section" id="imagenes">
+        <h2>Explora tus deseos</h2>
+        <div class="cta-buttons">
+          <button id="open-women">Atraer Mujeres</button>
+          <button id="open-men">Atraer Hombres</button>
+        </div>
+      </section>
+
+      <!-- Ventana flotante: Mujeres -->
+      <div id="modal-women" class="modal">
+        <div class="modal__content">
+          <button class="modal__close" data-close="modal-women">&times;</button>
+          <img src="IMG/Foto_Atraer_Mujeres.jpg" alt="Imagen atraer mujeres">
+        </div>
+      </div>
+
+      <!-- Ventana flotante: Hombres -->
+      <div id="modal-men" class="modal">
+        <div class="modal__content">
+          <button class="modal__close" data-close="modal-men">&times;</button>
+          <img src="IMG/Foto_Atraer_Hombres.jpg" alt="Imagen atraer hombres">
+        </div>
+      </div>
+
+      <!-- Formulario subir video (maqueta) -->
+      <section class="upload-section" id="subir">
+        <h2>Subir video</h2>
+        <form id="upload-form" novalidate>
+          <div class="form-group">
+            <label for="video-title">Título del video</label>
+            <input type="text" id="video-title" required maxlength="80" placeholder="Escribe un título atractivo">
+            <small class="error-msg" data-for="video-title"></small>
+          </div>
+
+          <div class="form-group">
+            <label for="video-description">Descripción</label>
+            <textarea id="video-description" rows="3" maxlength="500" placeholder="Describe tu video (máx. 500 caracteres)"></textarea>
+            <small class="error-msg" data-for="video-description"></small>
+          </div>
+
+          <div class="form-group">
+            <label for="video-file">Archivo de video</label>
+            <input type="file" id="video-file" accept="video/mp4,video/webm,video/ogg" required>
+            <small class="error-msg" data-for="video-file"></small>
+          </div>
+
+          <div class="form-group">
+            <label for="video-thumb">Miniatura (opcional)</label>
+            <input type="file" id="video-thumb" accept="image/*">
+            <small class="error-msg" data-for="video-thumb"></small>
+          </div>
+
+          <button type="submit" class="btn-primary">Simular subida</button>
+          <p class="upload-note">
+            Esta es una versión de prueba: el archivo no se envía a ningún servidor, solo se valida en tu navegador.
+          </p>
+        </form>
+      </section>
+
+      <!-- Secciones legales -->
+      <section id="legal" class="legal-section">
+        <h2>Aviso legal</h2>
+        <p>Aquí debes incluir tus datos como responsable del sitio y las condiciones de uso del contenido para adultos.</p>
+      </section>
+
+      <section id="privacidad" class="legal-section">
+        <h2>Política de privacidad</h2>
+        <p>Describe qué datos recoges, con qué finalidad, plazo de conservación y cómo ejercer derechos sobre los datos.</p>
+      </section>
+
+      <section id="cookies" class="legal-section">
+        <h2>Política de cookies</h2>
+        <p>Indica qué cookies usas, su finalidad, duración y cómo el usuario puede gestionarlas o revocar su consentimiento.</p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>&copy; <span id="year"></span> Nyxara. Todos los derechos reservados. Solo para mayores de 18 años.</p>
+      <p>
+        <a href="#legal">Aviso legal</a> · 
+        <a href="#privacidad">Privacidad</a> · 
+        <a href="#cookies">Cookies</a>
+      </p>
+    </footer>
+  </div>
+
+  <!-- Modal de autenticación (maqueta) -->
+  <div id="auth-modal" class="modal">
+    <div class="modal__content modal__content--auth">
+      <button class="modal__close" data-close="auth-modal">&times;</button>
+      <h2>Accede a Nyxara</h2>
+
+      <div class="auth-buttons">
+        <button class="btn-auth google">Continuar con Google</button>
+        <button class="btn-auth">Continuar con otra cuenta</button>
+      </div>
+
+      <div class="auth-divider">
+        <span>o con correo</span>
+      </div>
+
+      <form id="auth-form" novalidate>
+        <div class="form-group">
+          <label for="auth-email">Correo electrónico</label>
+          <input type="email" id="auth-email" required placeholder="tucorreo@example.com">
+          <small class="error-msg" data-for="auth-email"></small>
+        </div>
+
+        <div class="form-group">
+          <label for="auth-password">Contraseña</label>
+          <input type="password" id="auth-password" required minlength="6" placeholder="Mínimo 6 caracteres">
+          <small class="error-msg" data-for="auth-password"></small>
+        </div>
+
+        <button type="submit" class="btn-primary">Entrar / Crear cuenta (demo)</button>
+        <p class="upload-note">
+          Este formulario es una demostración visual. En la fase B se conectará a un sistema real de autenticación.
+        </p>
+      </form>
+    </div>
+  </div>
+
+  <script src="JS/script.js"></script>
+</body>
+</html>
