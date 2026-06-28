@@ -6,6 +6,7 @@ import {
   signOut,
   onAuthStateChanged,
   updateProfile,
+  sendPasswordResetEmail,
   type User,
 } from "firebase/auth";
 import {
@@ -114,7 +115,7 @@ function AgeGate({ onEnter }: { onEnter: () => void }) {
 
 // ─── Auth Modal ───────────────────────────────────────────────────────────────
 
-type AuthMode = "login" | "register";
+type AuthMode = "login" | "register" | "forgot";
 
 interface AuthErrors {
   username?: string;
@@ -240,6 +241,27 @@ function AuthModal({ onClose, defaultMode = "login" }: { onClose: () => void; de
     }
   }
 
+  async function handleForgot(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email.trim()) { setErrors({ email: "Introduce tu correo." }); return; }
+    if (!email.includes("@") || !email.includes(".")) { setErrors({ email: "Introduce un correo válido." }); return; }
+    setLoading(true);
+    setErrors({});
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      setSuccess(true);
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code ?? "";
+      const msg =
+        code === "auth/user-not-found" ? "No existe ninguna cuenta con ese correo." :
+        code === "auth/too-many-requests" ? "Demasiados intentos. Espera unos minutos." :
+        "Error al enviar el correo. Inténtalo de nuevo.";
+      setErrors({ general: msg });
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleGoogle() {
     setLoading(true);
     setErrors({});
@@ -271,143 +293,229 @@ function AuthModal({ onClose, defaultMode = "login" }: { onClose: () => void; de
         <div className="text-center mb-4">
           <span className="text-red-600 font-bold text-xl tracking-widest uppercase">Nyxara</span>
           <p className="text-gray-500 text-xs mt-0.5">
-            {mode === "login" ? "Bienvenido/a de vuelta" : "Crea tu cuenta gratuita"}
+            {mode === "login" && "Bienvenido/a de vuelta"}
+            {mode === "register" && "Crea tu cuenta gratuita"}
+            {mode === "forgot" && "Recupera tu contraseña"}
           </p>
         </div>
 
-        {/* Tabs */}
-        <div className="flex bg-[#0a0a0a] rounded-lg p-0.5 mb-5">
-          <button
-            onClick={() => switchMode("login")}
-            className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-all ${mode === "login" ? "bg-red-700 text-white" : "text-gray-400 hover:text-white"}`}
-          >
-            Iniciar sesión
-          </button>
-          <button
-            onClick={() => switchMode("register")}
-            className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-all ${mode === "register" ? "bg-red-700 text-white" : "text-gray-400 hover:text-white"}`}
-          >
-            Crear cuenta
-          </button>
-        </div>
+        {/* ── FORGOT MODE ─────────────────────────────────── */}
+        {mode === "forgot" && (
+          <>
+            {!success ? (
+              <>
+                <p className="text-xs text-gray-400 mb-4 leading-relaxed">
+                  Introduce tu correo y te enviaremos un enlace para restablecer tu contraseña.
+                </p>
 
-        {/* Google */}
-        <button
-          onClick={handleGoogle}
-          disabled={loading}
-          className="w-full py-2 px-4 rounded border border-[#444] bg-[#0a0a0a] text-white text-sm hover:border-red-700 hover:bg-red-700/10 transition-all mb-4 disabled:opacity-50 flex items-center justify-center gap-2"
-        >
-          <svg className="w-4 h-4" viewBox="0 0 24 24">
-            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
-            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-          </svg>
-          Continuar con Google
-        </button>
+                {errors.general && (
+                  <div className="text-xs text-red-400 bg-red-900/20 border border-red-800 rounded px-3 py-2 mb-3">
+                    {errors.general}
+                  </div>
+                )}
 
-        <div className="relative text-center text-xs text-gray-600 my-4">
-          <span className="bg-[#111] px-3 relative z-10">o con correo electrónico</span>
-          <div className="absolute inset-x-0 top-1/2 h-px bg-[#2a2a2a]" />
-        </div>
-
-        {/* Error general */}
-        {errors.general && (
-          <div className="text-xs text-red-400 bg-red-900/20 border border-red-800 rounded px-3 py-2 mb-3">
-            {errors.general}
-          </div>
+                <form onSubmit={handleForgot} noValidate className="flex flex-col gap-3">
+                  <InputField
+                    label="Correo electrónico"
+                    type="email"
+                    value={email}
+                    onChange={setEmail}
+                    placeholder="tucorreo@example.com"
+                    error={errors.email}
+                  />
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-2.5 bg-red-700 hover:bg-red-600 text-white font-semibold rounded text-sm transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                  >
+                    {loading ? "Enviando…" : "Enviar enlace de recuperación"}
+                  </button>
+                  <p className="text-center text-xs text-gray-500">
+                    <button
+                      type="button"
+                      onClick={() => switchMode("login")}
+                      className="text-red-500 hover:underline font-medium"
+                    >
+                      ← Volver al inicio de sesión
+                    </button>
+                  </p>
+                </form>
+              </>
+            ) : (
+              <div className="text-center py-4">
+                <div className="w-14 h-14 rounded-full bg-green-900/30 border border-green-700 flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-7 h-7 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <p className="text-green-400 font-semibold text-sm mb-1">¡Correo enviado!</p>
+                <p className="text-gray-400 text-xs leading-relaxed mb-4">
+                  Revisa tu bandeja de entrada en <span className="text-white font-medium">{email}</span>.
+                  El enlace expira en 1 hora.
+                </p>
+                <p className="text-xs text-gray-500 mb-4">
+                  ¿No lo ves? Revisa la carpeta de spam.
+                </p>
+                <button
+                  onClick={() => switchMode("login")}
+                  className="text-xs text-red-500 hover:underline font-medium"
+                >
+                  ← Volver al inicio de sesión
+                </button>
+              </div>
+            )}
+          </>
         )}
 
-        {/* Éxito registro */}
-        {success && (
-          <div className="text-xs text-green-400 bg-green-900/20 border border-green-800 rounded px-3 py-2 mb-3 text-center">
-            ✓ ¡Cuenta creada! Bienvenido/a a Nyxara.
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-3">
-          {mode === "register" && (
-            <InputField
-              label="Nombre de usuario"
-              value={username}
-              onChange={setUsername}
-              placeholder="Tu nombre en Nyxara"
-              error={errors.username}
-            />
-          )}
-
-          <InputField
-            label="Correo electrónico"
-            type="email"
-            value={email}
-            onChange={setEmail}
-            placeholder="tucorreo@example.com"
-            error={errors.email}
-          />
-
-          <InputField
-            label="Contraseña"
-            value={password}
-            onChange={setPassword}
-            placeholder="Mínimo 6 caracteres"
-            error={errors.password}
-            showToggle
-          />
-
-          {mode === "register" && (
-            <InputField
-              label="Confirmar contraseña"
-              value={confirm}
-              onChange={setConfirm}
-              placeholder="Repite tu contraseña"
-              error={errors.confirm}
-              showToggle
-            />
-          )}
-
-          {mode === "register" && (
-            <p className="text-xs text-gray-500 leading-relaxed">
-              Al crear una cuenta aceptas nuestros{" "}
-              <a href="#legal" onClick={onClose} className="text-red-500 hover:underline">términos de uso</a>
-              {" "}y confirmas que eres mayor de 18 años.
-            </p>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading || success}
-            className="w-full py-2.5 bg-red-700 hover:bg-red-600 text-white font-semibold rounded text-sm transition-all hover:-translate-y-0.5 mt-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-          >
-            {loading
-              ? (mode === "login" ? "Entrando…" : "Creando cuenta…")
-              : (mode === "login" ? "Entrar" : "Crear cuenta")}
-          </button>
-
-          {mode === "login" && (
-            <p className="text-center text-xs text-gray-500">
-              ¿No tienes cuenta?{" "}
+        {/* ── LOGIN / REGISTER MODE ────────────────────────── */}
+        {mode !== "forgot" && (
+          <>
+            {/* Tabs */}
+            <div className="flex bg-[#0a0a0a] rounded-lg p-0.5 mb-5">
               <button
-                type="button"
-                onClick={() => switchMode("register")}
-                className="text-red-500 hover:underline font-medium"
-              >
-                Regístrate gratis
-              </button>
-            </p>
-          )}
-          {mode === "register" && (
-            <p className="text-center text-xs text-gray-500">
-              ¿Ya tienes cuenta?{" "}
-              <button
-                type="button"
                 onClick={() => switchMode("login")}
-                className="text-red-500 hover:underline font-medium"
+                className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-all ${mode === "login" ? "bg-red-700 text-white" : "text-gray-400 hover:text-white"}`}
               >
-                Inicia sesión
+                Iniciar sesión
               </button>
-            </p>
-          )}
-        </form>
+              <button
+                onClick={() => switchMode("register")}
+                className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-all ${mode === "register" ? "bg-red-700 text-white" : "text-gray-400 hover:text-white"}`}
+              >
+                Crear cuenta
+              </button>
+            </div>
+
+            {/* Google */}
+            <button
+              onClick={handleGoogle}
+              disabled={loading}
+              className="w-full py-2 px-4 rounded border border-[#444] bg-[#0a0a0a] text-white text-sm hover:border-red-700 hover:bg-red-700/10 transition-all mb-4 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+              </svg>
+              Continuar con Google
+            </button>
+
+            <div className="relative text-center text-xs text-gray-600 my-4">
+              <span className="bg-[#111] px-3 relative z-10">o con correo electrónico</span>
+              <div className="absolute inset-x-0 top-1/2 h-px bg-[#2a2a2a]" />
+            </div>
+
+            {errors.general && (
+              <div className="text-xs text-red-400 bg-red-900/20 border border-red-800 rounded px-3 py-2 mb-3">
+                {errors.general}
+              </div>
+            )}
+
+            {success && (
+              <div className="text-xs text-green-400 bg-green-900/20 border border-green-800 rounded px-3 py-2 mb-3 text-center">
+                ✓ ¡Cuenta creada! Bienvenido/a a Nyxara.
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-3">
+              {mode === "register" && (
+                <InputField
+                  label="Nombre de usuario"
+                  value={username}
+                  onChange={setUsername}
+                  placeholder="Tu nombre en Nyxara"
+                  error={errors.username}
+                />
+              )}
+
+              <InputField
+                label="Correo electrónico"
+                type="email"
+                value={email}
+                onChange={setEmail}
+                placeholder="tucorreo@example.com"
+                error={errors.email}
+              />
+
+              <div>
+                <InputField
+                  label="Contraseña"
+                  value={password}
+                  onChange={setPassword}
+                  placeholder="Mínimo 6 caracteres"
+                  error={errors.password}
+                  showToggle
+                />
+                {mode === "login" && (
+                  <div className="text-right mt-1">
+                    <button
+                      type="button"
+                      onClick={() => switchMode("forgot")}
+                      className="text-xs text-gray-500 hover:text-red-500 transition-colors"
+                    >
+                      ¿Olvidaste tu contraseña?
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {mode === "register" && (
+                <InputField
+                  label="Confirmar contraseña"
+                  value={confirm}
+                  onChange={setConfirm}
+                  placeholder="Repite tu contraseña"
+                  error={errors.confirm}
+                  showToggle
+                />
+              )}
+
+              {mode === "register" && (
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  Al crear una cuenta aceptas nuestros{" "}
+                  <a href="#legal" onClick={onClose} className="text-red-500 hover:underline">términos de uso</a>
+                  {" "}y confirmas que eres mayor de 18 años.
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading || success}
+                className="w-full py-2.5 bg-red-700 hover:bg-red-600 text-white font-semibold rounded text-sm transition-all hover:-translate-y-0.5 mt-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+              >
+                {loading
+                  ? (mode === "login" ? "Entrando…" : "Creando cuenta…")
+                  : (mode === "login" ? "Entrar" : "Crear cuenta")}
+              </button>
+
+              {mode === "login" && (
+                <p className="text-center text-xs text-gray-500">
+                  ¿No tienes cuenta?{" "}
+                  <button
+                    type="button"
+                    onClick={() => switchMode("register")}
+                    className="text-red-500 hover:underline font-medium"
+                  >
+                    Regístrate gratis
+                  </button>
+                </p>
+              )}
+              {mode === "register" && (
+                <p className="text-center text-xs text-gray-500">
+                  ¿Ya tienes cuenta?{" "}
+                  <button
+                    type="button"
+                    onClick={() => switchMode("login")}
+                    className="text-red-500 hover:underline font-medium"
+                  >
+                    Inicia sesión
+                  </button>
+                </p>
+              )}
+            </form>
+          </>
+        )}
       </div>
     </div>
   );
