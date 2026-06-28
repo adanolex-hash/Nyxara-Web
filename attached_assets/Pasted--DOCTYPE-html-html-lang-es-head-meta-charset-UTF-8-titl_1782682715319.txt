@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Nyxara</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Nyxara: sitio para adultos, contenido erótico. Acceso solo para mayores de 18 años.">
+  <meta name="robots" content="noindex,nofollow">
+  <link rel="stylesheet" href="CSS/styles.css">
+</head>
+<body>
+
+  <div id="age-gate" class="age-gate">
+    <div class="age-gate__content">
+      <h1>Contenido solo para mayores de 18 años</h1>
+      <p>Este sitio contiene contenido erótico dirigido exclusivamente a personas adultas. Al continuar declaras que eres mayor de edad en tu país y aceptas nuestra política de privacidad y de cookies.</p>
+      <div class="age-gate__buttons">
+        <button id="btn-enter">Soy mayor de 18</button>
+        <button id="btn-leave">Salir</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="site-wrapper" class="site-wrapper hidden">
+    <header class="topbar">
+      <div class="topbar__logo">
+        <img src="IMG/Intro_Nyxara.jpeg" alt="Nyxara">
+      </div>
+      <div class="topbar__search">
+        <input type="text" id="search-input" placeholder="Buscar videos…">
+        <button id="search-btn">Buscar</button>
+      </div>
+      <div class="topbar__right">
+        <button id="btn-open-auth" class="topbar__user">Iniciar sesión</button>
+      </div>
+    </header>
+
+    <nav class="main-menu" id="main-menu">
+      <a href="#inicio">INICIO</a>
+      <a href="#mejor">LO MEJOR</a>
+      <a href="#categorias">CATEGORÍAS</a>
+      <a href="#imagenes">IMÁGENES</a>
+      <a href="#subir">SUBIR VIDEO</a>
+      <a href="#legal">LEGAL</a>
+      <a href="#privacidad">PRIVACIDAD</a>
+      <a href="#cookies">COOKIES</a>
+    </nav>
+
+    <main class="page">
+      <section class="hero hero--portal" id="inicio">
+        <img src="IMG/Logo_Nyxara.jpeg" alt="Logo Nyxara" class="hero__logo">
+        <div class="hero__text hero__text--center">
+          <h1>Nyxara</h1>
+          <p>Donde tus sueños más eróticos se hacen realidad y tus parafilias no serán juzgadas, solo con un click de tu dedo, bienvenida o bienvenido a Nyxara.</p>
+        </div>
+      </section>
+
+      <section class="video-feed" id="mejor">
+        <h2>Videos recomendados</h2>
+        <div class="video-grid" id="video-grid">
+          </div>
+      </section>
+
+      <section class="cta-section" id="imagenes">
+        <h2>Explora tus deseos</h2>
+        <div class="cta-buttons">
+          <button id="open-women">Atraer Mujeres</button>
+          <button id="open-men">Atraer Hombres</button>
+        </div>
+      </section>
+
+      <div id="modal-women" class="modal"><div class="modal__content"><button class="modal__close" data-close="modal-women">&times;</button><img src="IMG/Foto_Atraer_Mujeres.jpg"></div></div>
+      <div id="modal-men" class="modal"><div class="modal__content"><button class="modal__close" data-close="modal-men">&times;</button><img src="IMG/Foto_Atraer_Hombres.jpg"></div></div>
+
+      <section class="upload-section" id="subir">
+        <h2>Subir video</h2>
+        <form id="upload-form" novalidate>
+          <div class="form-group"><label>Título</label><input type="text" id="video-title" required></div>
+          <div class="form-group"><label>Descripción</label><textarea id="video-description"></textarea></div>
+          <div class="form-group"><label>Archivo</label><input type="file" id="video-file" required></div>
+          <button type="submit" class="btn-primary">Simular subida</button>
+        </form>
+      </section>
+
+      <section id="legal" class="legal-section"><h2>Aviso legal</h2><p>...</p></section>
+      <section id="privacidad" class="legal-section"><h2>Privacidad</h2><p>...</p></section>
+      <section id="cookies" class="legal-section"><h2>Cookies</h2><p>...</p></section>
+    </main>
+
+    <footer class="site-footer">
+      <p>&copy; <span id="year"></span> Nyxara. Todos los derechos reservados.</p>
+    </footer>
+  </div>
+
+  <div id="auth-modal" class="modal">
+    <div class="modal__content modal__content--auth">
+      <button class="modal__close" data-close="auth-modal">&times;</button>
+      <h2>Accede a Nyxara</h2>
+      <form id="auth-form"><input type="email" id="auth-email"><input type="password" id="auth-password"><button type="submit">Entrar</button></form>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-storage-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-auth-compat.js"></script>
+
+  <script type="module">
+	 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+  	 import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-analytics.js";
+  
+    const firebaseConfig = {
+    apiKey: "AIzaSyBJ7zJPxejOS5Q9b5X_SEW2NjwpJ7vtyTw",
+    authDomain: "nyxara-6a7ef.firebaseapp.com",
+    projectId: "nyxara-6a7ef",
+    storageBucket: "nyxara-6a7ef.appspot.com",
+    messagingSenderId: "20227132538",
+    appId: "1:20227132538:web:6bad67d610147daea8bfc3"
+  };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const storage = firebase.storage();
+    const auth = firebase.auth();
+	// Initialize Firebase
+ 	const app = initializeApp(firebaseConfig);
+    const analytics = getAnalytics(app);
+	console.log("!Firebase conectado con éxito!");
+  </script>
+
+  <script src="JS/script.js"></script>
+</body>
+</html>
