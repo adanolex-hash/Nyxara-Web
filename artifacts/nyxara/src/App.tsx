@@ -1,32 +1,63 @@
 import { useState, useEffect, useRef } from "react";
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged,
+  type User,
+} from "firebase/auth";
+import {
+  collection,
+  addDoc,
+  onSnapshot,
+  query,
+  orderBy,
+  serverTimestamp,
+} from "firebase/firestore";
+import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { auth, db, storage, googleProvider } from "./firebase";
+
 import introImg from "@assets/Intro_Nyxara_1782602425752.jpeg";
 import logoImg from "@assets/Logo_Nyxara_1782602425752.jpeg";
 import womenImg from "@assets/Foto_Atraer_Mujeres_1782602425751.jpg";
 import menImg from "@assets/Foto_Atraer_Hombres_1782602425751.jpg";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-interface VideoCard {
-  id: number;
+interface VideoDoc {
+  id: string;
   title: string;
-  views: string;
-  ago: string;
-  duration: string;
-  gradient: string;
+  description: string;
+  url: string;
+  thumbUrl?: string;
+  uploadedBy: string;
+  displayName: string;
+  views: number;
+  createdAt: { seconds: number } | null;
 }
 
-// ─── Data ────────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const VIDEOS: VideoCard[] = [
-  { id: 1, title: "Noche de pasión intensa", views: "2.3M", ago: "hace 1 día", duration: "12:34", gradient: "from-red-900 via-black to-red-950" },
-  { id: 2, title: "Encuentro secreto en el hotel", views: "1.8M", ago: "hace 3 días", duration: "08:15", gradient: "from-rose-900 via-black to-gray-900" },
-  { id: 3, title: "Seducción en la penumbra", views: "975K", ago: "hace 5 horas", duration: "05:47", gradient: "from-red-800 via-gray-900 to-black" },
-  { id: 4, title: "Deseo en la madrugada", views: "3.1M", ago: "hace 2 semanas", duration: "20:01", gradient: "from-gray-900 via-red-900 to-black" },
-  { id: 5, title: "Juego de miradas", views: "540K", ago: "hace 1 hora", duration: "04:22", gradient: "from-black via-red-950 to-rose-900" },
-  { id: 6, title: "El ritual de la seducción", views: "1.1M", ago: "hace 4 días", duration: "15:09", gradient: "from-red-950 via-black to-gray-900" },
-  { id: 7, title: "Placer sin límites", views: "2.7M", ago: "hace 1 semana", duration: "18:44", gradient: "from-gray-900 via-red-800 to-black" },
-  { id: 8, title: "La última tentación", views: "880K", ago: "hace 6 horas", duration: "09:58", gradient: "from-rose-950 via-gray-900 to-red-900" },
+function timeAgo(seconds: number): string {
+  const diff = Math.floor(Date.now() / 1000) - seconds;
+  if (diff < 60) return "hace un momento";
+  if (diff < 3600) return `hace ${Math.floor(diff / 60)} min`;
+  if (diff < 86400) return `hace ${Math.floor(diff / 3600)} h`;
+  if (diff < 604800) return `hace ${Math.floor(diff / 86400)} días`;
+  return `hace ${Math.floor(diff / 604800)} semanas`;
+}
+
+const GRADIENTS = [
+  "from-red-900 via-black to-red-950",
+  "from-rose-900 via-black to-gray-900",
+  "from-red-800 via-gray-900 to-black",
+  "from-gray-900 via-red-900 to-black",
+  "from-black via-red-950 to-rose-900",
+  "from-red-950 via-black to-gray-900",
 ];
+
+// ─── Nav Links ────────────────────────────────────────────────────────────────
 
 const NAV_LINKS = [
   { label: "INICIO", href: "#inicio" },
@@ -48,7 +79,11 @@ function AgeGate({ onEnter }: { onEnter: () => void }) {
         className="w-full max-w-md bg-[#111] rounded-lg text-center p-8 animate-modal-in"
         style={{ boxShadow: "0 0 30px rgba(204,0,0,0.5)" }}
       >
-        <img src={introImg} alt="Nyxara" className="w-32 h-32 object-cover rounded-full mx-auto mb-6 border-2 border-red-700" />
+        <img
+          src={introImg}
+          alt="Nyxara"
+          className="w-32 h-32 object-cover rounded-full mx-auto mb-6 border-2 border-red-700"
+        />
         <h1 className="text-xl font-bold text-white mb-3 uppercase tracking-widest">
           Solo para mayores de 18 años
         </h1>
@@ -79,20 +114,58 @@ function AgeGate({ onEnter }: { onEnter: () => void }) {
 // ─── Auth Modal ───────────────────────────────────────────────────────────────
 
 function AuthModal({ onClose }: { onClose: () => void }) {
+  const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const [errors, setErrors] = useState<{ email?: string; password?: string; general?: string }>({});
+  const [loading, setLoading] = useState(false);
 
-  function handleSubmit(e: React.FormEvent) {
+  function validate() {
+    const e: typeof errors = {};
+    if (!email) e.email = "El correo es obligatorio.";
+    else if (!email.includes("@")) e.email = "Introduce un correo válido.";
+    if (!password) e.password = "La contraseña es obligatoria.";
+    else if (password.length < 6) e.password = "Mínimo 6 caracteres.";
+    return e;
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const newErrors: typeof errors = {};
-    if (!email) newErrors.email = "El correo es obligatorio.";
-    else if (!email.includes("@")) newErrors.email = "Introduce un correo válido.";
-    if (!password) newErrors.password = "La contraseña es obligatoria.";
-    else if (password.length < 6) newErrors.password = "Mínimo 6 caracteres.";
-    setErrors(newErrors);
-    if (!Object.keys(newErrors).length) {
-      alert("Demo: aquí se conectará el sistema real de autenticación.");
+    const errs = validate();
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+    setLoading(true);
+    setErrors({});
+    try {
+      if (mode === "login") {
+        await signInWithEmailAndPassword(auth, email, password);
+      } else {
+        await createUserWithEmailAndPassword(auth, email, password);
+      }
+      onClose();
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code ?? "";
+      const msg =
+        code === "auth/user-not-found" ? "Usuario no encontrado." :
+        code === "auth/wrong-password" ? "Contraseña incorrecta." :
+        code === "auth/email-already-in-use" ? "El correo ya está registrado." :
+        code === "auth/invalid-credential" ? "Credenciales inválidas." :
+        "Error al iniciar sesión. Inténtalo de nuevo.";
+      setErrors({ general: msg });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGoogle() {
+    setLoading(true);
+    setErrors({});
+    try {
+      await signInWithPopup(auth, googleProvider);
+      onClose();
+    } catch {
+      setErrors({ general: "No se pudo iniciar sesión con Google." });
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -108,21 +181,41 @@ function AuthModal({ onClose }: { onClose: () => void }) {
         >
           ×
         </button>
-        <h2 className="text-lg font-bold text-white mb-4">Accede a Nyxara</h2>
 
-        <div className="flex flex-col gap-2 mb-4">
-          <button className="w-full py-2 px-4 rounded border border-red-700 bg-[#111] text-white text-sm hover:bg-red-700/20 transition-colors">
-            Continuar con Google
+        <h2 className="text-lg font-bold text-white mb-1">Accede a Nyxara</h2>
+        <div className="flex gap-3 mb-4">
+          <button
+            onClick={() => setMode("login")}
+            className={`text-sm font-semibold border-b-2 pb-0.5 transition-colors ${mode === "login" ? "border-red-600 text-red-500" : "border-transparent text-gray-400 hover:text-white"}`}
+          >
+            Iniciar sesión
           </button>
-          <button className="w-full py-2 px-4 rounded border border-gray-600 bg-[#111] text-white text-sm hover:bg-white/5 transition-colors">
-            Continuar con otra cuenta
+          <button
+            onClick={() => setMode("register")}
+            className={`text-sm font-semibold border-b-2 pb-0.5 transition-colors ${mode === "register" ? "border-red-600 text-red-500" : "border-transparent text-gray-400 hover:text-white"}`}
+          >
+            Crear cuenta
           </button>
         </div>
 
-        <div className="relative text-center text-xs text-gray-500 my-4">
+        <button
+          onClick={handleGoogle}
+          disabled={loading}
+          className="w-full py-2 px-4 rounded border border-red-700 bg-[#111] text-white text-sm hover:bg-red-700/20 transition-colors mb-3 disabled:opacity-50"
+        >
+          Continuar con Google
+        </button>
+
+        <div className="relative text-center text-xs text-gray-500 my-3">
           <span className="bg-[#111] px-3 relative z-10">o con correo</span>
           <div className="absolute inset-x-0 top-1/2 h-px bg-[#333]" />
         </div>
+
+        {errors.general && (
+          <p className="text-xs text-red-400 bg-red-900/20 border border-red-800 rounded px-3 py-2 mb-3">
+            {errors.general}
+          </p>
+        )}
 
         <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-3">
           <div>
@@ -149,13 +242,11 @@ function AuthModal({ onClose }: { onClose: () => void }) {
           </div>
           <button
             type="submit"
-            className="w-full py-2 bg-red-700 hover:bg-red-600 text-white font-semibold rounded text-sm transition-colors mt-1"
+            disabled={loading}
+            className="w-full py-2 bg-red-700 hover:bg-red-600 text-white font-semibold rounded text-sm transition-colors mt-1 disabled:opacity-50"
           >
-            Entrar / Crear cuenta
+            {loading ? "Cargando…" : mode === "login" ? "Entrar" : "Crear cuenta"}
           </button>
-          <p className="text-xs text-gray-500 text-center">
-            Formulario de demostración visual.
-          </p>
         </form>
       </div>
     </div>
@@ -183,16 +274,58 @@ function ImageModal({ src, alt, onClose }: { src: string; alt: string; onClose: 
   );
 }
 
+// ─── Video Player Modal ───────────────────────────────────────────────────────
+
+function VideoModal({ video, onClose }: { video: VideoDoc; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-[900] bg-black/90 flex items-center justify-center p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="relative w-full max-w-2xl animate-modal-in">
+        <button
+          onClick={onClose}
+          className="absolute -top-3 -right-3 bg-red-700 text-white rounded-full w-7 h-7 text-lg flex items-center justify-center hover:bg-red-600 transition-colors z-10"
+        >
+          ×
+        </button>
+        <video
+          src={video.url}
+          controls
+          autoPlay
+          className="w-full rounded-lg bg-black"
+          style={{ maxHeight: "70vh" }}
+        />
+        <div className="mt-3 px-1">
+          <h3 className="text-white font-semibold">{video.title}</h3>
+          {video.description && (
+            <p className="text-gray-400 text-sm mt-1">{video.description}</p>
+          )}
+          <p className="text-gray-500 text-xs mt-1">Subido por {video.displayName}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Upload Form ──────────────────────────────────────────────────────────────
 
-function UploadForm() {
+function UploadForm({ user }: { user: User | null }) {
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
-  const [errors, setErrors] = useState<{ title?: string; desc?: string; file?: string }>({});
+  const [errors, setErrors] = useState<{ title?: string; desc?: string; file?: string; auth?: string }>({});
+  const [progress, setProgress] = useState<number | null>(null);
+  const [success, setSuccess] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const thumbRef = useRef<HTMLInputElement>(null);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!user) {
+      setErrors({ auth: "Debes iniciar sesión para subir videos." });
+      return;
+    }
+
     const newErrors: typeof errors = {};
     const file = fileRef.current?.files?.[0];
     if (!title.trim()) newErrors.title = "El título es obligatorio.";
@@ -202,14 +335,65 @@ function UploadForm() {
     } else {
       const allowed = ["video/mp4", "video/webm", "video/ogg"];
       if (!allowed.includes(file.type)) newErrors.file = "Formato no permitido. Usa MP4, WEBM u OGG.";
-      else if (file.size > 500 * 1024 * 1024) newErrors.file = "El archivo es demasiado grande (máx. 500 MB).";
+      else if (file.size > 500 * 1024 * 1024) newErrors.file = "Demasiado grande (máx. 500 MB).";
     }
     setErrors(newErrors);
-    if (!Object.keys(newErrors).length) {
-      alert("Demo: el formulario es válido.");
-      setTitle("");
-      setDesc("");
-      if (fileRef.current) fileRef.current.value = "";
+    if (Object.keys(newErrors).length || !file) return;
+
+    setProgress(0);
+    setSuccess(false);
+
+    try {
+      // Subir video a Storage
+      const videoRef = ref(storage, `videos/${Date.now()}_${file.name}`);
+      const uploadTask = uploadBytesResumable(videoRef, file);
+
+      uploadTask.on(
+        "state_changed",
+        (snap) => setProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
+        (err) => {
+          console.error(err);
+          setErrors({ file: "Error al subir el archivo. Inténtalo de nuevo." });
+          setProgress(null);
+        },
+        async () => {
+          const url = await getDownloadURL(uploadTask.snapshot.ref);
+
+          // Subir miniatura si hay
+          let thumbUrl = "";
+          const thumbFile = thumbRef.current?.files?.[0];
+          if (thumbFile) {
+            const tRef = ref(storage, `thumbs/${Date.now()}_${thumbFile.name}`);
+            const tSnap = await new Promise<{ ref: typeof tRef }>((res, rej) =>
+              uploadBytesResumable(tRef, thumbFile).on("state_changed", () => {}, rej, () => res({ ref: tRef }))
+            );
+            thumbUrl = await getDownloadURL(tSnap.ref);
+          }
+
+          // Guardar metadata en Firestore
+          await addDoc(collection(db, "videos"), {
+            title: title.trim(),
+            description: desc.trim(),
+            url,
+            thumbUrl,
+            uploadedBy: user.uid,
+            displayName: user.displayName ?? user.email ?? "Usuario",
+            views: 0,
+            createdAt: serverTimestamp(),
+          });
+
+          setProgress(null);
+          setSuccess(true);
+          setTitle("");
+          setDesc("");
+          if (fileRef.current) fileRef.current.value = "";
+          if (thumbRef.current) thumbRef.current.value = "";
+        }
+      );
+    } catch (err) {
+      console.error(err);
+      setErrors({ file: "Error al subir. Inténtalo de nuevo." });
+      setProgress(null);
     }
   }
 
@@ -217,6 +401,19 @@ function UploadForm() {
     <section id="subir" className="px-4 py-8 border-t border-red-950 bg-black">
       <div className="max-w-2xl mx-auto">
         <h2 className="text-xl font-bold text-red-600 mb-5 uppercase tracking-wide">Subir Video</h2>
+
+        {errors.auth && (
+          <p className="text-sm text-red-400 bg-red-900/20 border border-red-800 rounded px-3 py-2 mb-4">
+            {errors.auth}
+          </p>
+        )}
+
+        {success && (
+          <p className="text-sm text-green-400 bg-green-900/20 border border-green-800 rounded px-3 py-2 mb-4">
+            ✓ Video subido correctamente. Aparecerá en el feed en breve.
+          </p>
+        )}
+
         <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
           <div>
             <label className="block text-sm text-gray-300 mb-1">Título del video</label>
@@ -243,7 +440,7 @@ function UploadForm() {
             {errors.desc && <p className="text-xs text-red-400 mt-1">{errors.desc}</p>}
           </div>
           <div>
-            <label className="block text-sm text-gray-300 mb-1">Archivo de video</label>
+            <label className="block text-sm text-gray-300 mb-1">Archivo de video (MP4, WEBM u OGG)</label>
             <input
               ref={fileRef}
               type="file"
@@ -255,21 +452,39 @@ function UploadForm() {
           <div>
             <label className="block text-sm text-gray-300 mb-1">Miniatura (opcional)</label>
             <input
+              ref={thumbRef}
               type="file"
               accept="image/*"
               className="w-full text-sm text-gray-300 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-[#333] file:text-white file:text-sm file:cursor-pointer hover:file:bg-[#444]"
             />
           </div>
+
+          {progress !== null && (
+            <div>
+              <div className="flex justify-between text-xs text-gray-400 mb-1">
+                <span>Subiendo…</span>
+                <span>{progress}%</span>
+              </div>
+              <div className="w-full h-2 bg-[#222] rounded overflow-hidden">
+                <div
+                  className="h-full bg-red-600 transition-all duration-300"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            </div>
+          )}
+
           <div>
             <button
               type="submit"
-              className="px-6 py-2.5 bg-red-700 hover:bg-red-600 text-white font-semibold rounded text-sm transition-all hover:-translate-y-0.5 border border-red-700"
+              disabled={progress !== null}
+              className="px-6 py-2.5 bg-red-700 hover:bg-red-600 text-white font-semibold rounded text-sm transition-all hover:-translate-y-0.5 border border-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Simular subida
+              {progress !== null ? `Subiendo ${progress}%…` : "Subir video"}
             </button>
-            <p className="text-xs text-gray-500 mt-2">
-              Esta es una versión de prueba: el archivo no se envía a ningún servidor, solo se valida en tu navegador.
-            </p>
+            {!user && (
+              <p className="text-xs text-gray-500 mt-2">Debes iniciar sesión para subir videos.</p>
+            )}
           </div>
         </form>
       </div>
@@ -283,13 +498,33 @@ export default function App() {
   const [entered, setEntered] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [imageModal, setImageModal] = useState<{ src: string; alt: string } | null>(null);
+  const [videoModal, setVideoModal] = useState<VideoDoc | null>(null);
   const [search, setSearch] = useState("");
-  const [filteredVideos, setFilteredVideos] = useState(VIDEOS);
+  const [user, setUser] = useState<User | null>(null);
+  const [videos, setVideos] = useState<VideoDoc[]>([]);
+  const [loadingVideos, setLoadingVideos] = useState(true);
 
+  // Auth listener
   useEffect(() => {
-    const q = search.trim().toLowerCase();
-    setFilteredVideos(q ? VIDEOS.filter((v) => v.title.toLowerCase().includes(q)) : VIDEOS);
-  }, [search]);
+    const unsub = onAuthStateChanged(auth, (u) => setUser(u));
+    return unsub;
+  }, []);
+
+  // Firestore listener — videos en tiempo real
+  useEffect(() => {
+    const q = query(collection(db, "videos"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snap) => {
+      setVideos(
+        snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<VideoDoc, "id">) }))
+      );
+      setLoadingVideos(false);
+    }, () => setLoadingVideos(false));
+    return unsub;
+  }, []);
+
+  const filtered = search.trim()
+    ? videos.filter((v) => v.title.toLowerCase().includes(search.trim().toLowerCase()))
+    : videos;
 
   const year = new Date().getFullYear();
 
@@ -300,19 +535,24 @@ export default function App() {
       {imageModal && (
         <ImageModal src={imageModal.src} alt={imageModal.alt} onClose={() => setImageModal(null)} />
       )}
+      {videoModal && (
+        <VideoModal video={videoModal} onClose={() => setVideoModal(null)} />
+      )}
 
-      <div className={`min-h-screen flex flex-col transition-opacity duration-300 ${entered ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
-
+      <div
+        className={`min-h-screen flex flex-col transition-opacity duration-300 ${entered ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+      >
         {/* ── Topbar ── */}
         <header className="flex items-center justify-between px-4 py-2 bg-black border-b-2 border-red-700 sticky top-0 z-50">
           <a href="#inicio" className="flex-shrink-0">
-            <img src={introImg} alt="Nyxara" className="h-10 w-10 rounded-full object-cover border border-red-700" />
+            <img
+              src={introImg}
+              alt="Nyxara"
+              className="h-10 w-10 rounded-full object-cover border border-red-700"
+            />
           </a>
 
-          <form
-            className="flex flex-1 max-w-lg mx-4"
-            onSubmit={(e) => e.preventDefault()}
-          >
+          <form className="flex flex-1 max-w-lg mx-4" onSubmit={(e) => e.preventDefault()}>
             <input
               type="text"
               value={search}
@@ -328,12 +568,26 @@ export default function App() {
             </button>
           </form>
 
-          <button
-            onClick={() => setShowAuth(true)}
-            className="flex-shrink-0 px-4 py-1.5 bg-red-700 hover:bg-red-600 text-white text-sm font-semibold rounded transition-colors"
-          >
-            Iniciar sesión
-          </button>
+          {user ? (
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span className="text-xs text-gray-400 hidden sm:block truncate max-w-[120px]">
+                {user.displayName ?? user.email}
+              </span>
+              <button
+                onClick={() => signOut(auth)}
+                className="px-3 py-1.5 bg-[#333] hover:bg-[#444] text-white text-xs font-semibold rounded transition-colors"
+              >
+                Salir
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowAuth(true)}
+              className="flex-shrink-0 px-4 py-1.5 bg-red-700 hover:bg-red-600 text-white text-sm font-semibold rounded transition-colors"
+            >
+              Iniciar sesión
+            </button>
+          )}
         </header>
 
         {/* ── Nav ── */}
@@ -350,7 +604,6 @@ export default function App() {
         </nav>
 
         <main className="flex-1">
-
           {/* ── Hero ── */}
           <section id="inicio" className="text-center py-8 px-4">
             <img
@@ -367,37 +620,69 @@ export default function App() {
             </p>
           </section>
 
-          {/* ── Video Feed ── */}
+          {/* ── Feed de Videos ── */}
           <section id="mejor" className="px-4 pb-8">
             <h2 className="text-lg font-bold text-red-600 mb-4 uppercase tracking-wide">
               {search.trim() ? `Resultados para "${search}"` : "Videos recomendados"}
             </h2>
-            {filteredVideos.length === 0 ? (
-              <p className="text-gray-500 text-sm py-8 text-center">No se encontraron videos.</p>
+
+            {loadingVideos ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="bg-[#111] rounded overflow-hidden animate-pulse">
+                    <div className="h-28 bg-[#1a1a1a]" />
+                    <div className="p-2">
+                      <div className="h-3 bg-[#222] rounded mb-2 w-4/5" />
+                      <div className="h-2 bg-[#1a1a1a] rounded w-3/5" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : filtered.length === 0 ? (
+              <p className="text-gray-500 text-sm py-12 text-center">
+                {videos.length === 0
+                  ? "Todavía no hay videos. ¡Sube el primero!"
+                  : "No se encontraron videos."}
+              </p>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                {filteredVideos.map((video) => (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+                {filtered.map((video, i) => (
                   <article
                     key={video.id}
+                    onClick={() => setVideoModal(video)}
                     className="bg-[#111] rounded overflow-hidden cursor-pointer group transition-all hover:-translate-y-1"
-                    style={{ boxShadow: "0 0 0 0 rgba(204,0,0,0)" }}
                     onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLElement).style.boxShadow = "0 0 14px rgba(204,0,0,0.55)";
+                      (e.currentTarget as HTMLElement).style.boxShadow =
+                        "0 0 14px rgba(204,0,0,0.55)";
                     }}
                     onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLElement).style.boxShadow = "0 0 0 0 rgba(204,0,0,0)";
+                      (e.currentTarget as HTMLElement).style.boxShadow = "none";
                     }}
                   >
-                    <div className={`relative h-28 bg-gradient-to-br ${video.gradient}`}>
-                      <span className="absolute bottom-1.5 right-2 bg-black/80 text-white text-xs px-1.5 py-0.5 rounded">
-                        {video.duration}
-                      </span>
+                    <div className={`relative h-28 bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]}`}>
+                      {video.thumbUrl && (
+                        <img
+                          src={video.thumbUrl}
+                          alt={video.title}
+                          className="absolute inset-0 w-full h-full object-cover"
+                        />
+                      )}
+                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="w-10 h-10 rounded-full bg-black/70 flex items-center justify-center">
+                          <svg className="w-5 h-5 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M8 5v14l11-7z" />
+                          </svg>
+                        </div>
+                      </div>
                     </div>
                     <div className="p-2">
                       <h3 className="text-xs font-semibold text-white leading-snug line-clamp-2 mb-1">
                         {video.title}
                       </h3>
-                      <p className="text-xs text-gray-400">{video.views} vistas · {video.ago}</p>
+                      <p className="text-xs text-gray-400">
+                        {video.views.toLocaleString()} vistas ·{" "}
+                        {video.createdAt ? timeAgo(video.createdAt.seconds) : "reciente"}
+                      </p>
                     </div>
                   </article>
                 ))}
@@ -407,7 +692,9 @@ export default function App() {
 
           {/* ── Image CTA ── */}
           <section id="imagenes" className="text-center px-4 py-8 border-t border-red-950">
-            <h2 className="text-lg font-bold text-red-600 mb-5 uppercase tracking-wide">Explora tus deseos</h2>
+            <h2 className="text-lg font-bold text-red-600 mb-5 uppercase tracking-wide">
+              Explora tus deseos
+            </h2>
             <div className="flex justify-center gap-4 flex-wrap">
               <button
                 onClick={() => setImageModal({ src: womenImg, alt: "Atraer Mujeres" })}
@@ -425,7 +712,7 @@ export default function App() {
           </section>
 
           {/* ── Upload ── */}
-          <UploadForm />
+          <UploadForm user={user} />
 
           {/* ── Legal ── */}
           <section id="legal" className="px-4 py-6 border-t border-red-950 bg-black">
