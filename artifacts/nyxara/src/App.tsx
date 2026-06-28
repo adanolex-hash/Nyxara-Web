@@ -8,6 +8,7 @@ import {
   updateProfile,
   sendPasswordResetEmail,
   type User,
+  reload,
 } from "firebase/auth";
 import {
   collection,
@@ -760,11 +761,246 @@ function UploadForm({ user }: { user: User | null }) {
   );
 }
 
+// ─── Avatar helper ────────────────────────────────────────────────────────────
+
+function Avatar({ user, size = "sm" }: { user: User; size?: "sm" | "md" | "lg" }) {
+  const s = size === "lg" ? "w-20 h-20 text-2xl" : size === "md" ? "w-12 h-12 text-base" : "w-8 h-8 text-xs";
+  if (user.photoURL) {
+    return <img src={user.photoURL} alt={user.displayName ?? "Usuario"} className={`${s} rounded-full object-cover border-2 border-red-700`} />;
+  }
+  const initials = (user.displayName ?? user.email ?? "?").slice(0, 2).toUpperCase();
+  return (
+    <div className={`${s} rounded-full bg-red-900 border-2 border-red-700 flex items-center justify-center font-bold text-white flex-shrink-0`}>
+      {initials}
+    </div>
+  );
+}
+
+// ─── Profile Modal ────────────────────────────────────────────────────────────
+
+function ProfileModal({ user, videos, onClose }: { user: User; videos: VideoDoc[]; onClose: () => void }) {
+  const [tab, setTab] = useState<"info" | "videos">("info");
+  const [username, setUsername] = useState(user.displayName ?? "");
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const photoRef = useRef<HTMLInputElement>(null);
+
+  const myVideos = videos.filter((v) => v.uploadedBy === user.uid);
+
+  async function handleSaveName(e: React.FormEvent) {
+    e.preventDefault();
+    if (!username.trim()) return;
+    if (username.trim().length < 3) { setSaveMsg({ type: "err", text: "Mínimo 3 caracteres." }); return; }
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      await updateProfile(user, { displayName: username.trim() });
+      await reload(user);
+      setSaveMsg({ type: "ok", text: "Nombre actualizado correctamente." });
+    } catch {
+      setSaveMsg({ type: "err", text: "Error al guardar. Inténtalo de nuevo." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setSaveMsg({ type: "err", text: "Solo se permiten imágenes." }); return; }
+    if (file.size > 5 * 1024 * 1024) { setSaveMsg({ type: "err", text: "La imagen no puede superar 5 MB." }); return; }
+    setPhotoUploading(true);
+    setSaveMsg(null);
+    try {
+      const photoRef2 = ref(storage, `avatars/${user.uid}_${Date.now()}`);
+      const task = uploadBytesResumable(photoRef2, file);
+      await new Promise<void>((res, rej) => task.on("state_changed", () => {}, rej, () => res()));
+      const url = await getDownloadURL(task.snapshot.ref);
+      await updateProfile(user, { photoURL: url });
+      await reload(user);
+      setSaveMsg({ type: "ok", text: "Foto de perfil actualizada." });
+    } catch {
+      setSaveMsg({ type: "err", text: "Error al subir la foto." });
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[900] bg-black/85 flex items-center justify-center p-4 overflow-y-auto"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="w-full max-w-md bg-[#111] rounded-lg animate-modal-in relative my-auto overflow-hidden">
+        {/* Header */}
+        <div className="relative bg-gradient-to-br from-red-950 via-black to-gray-900 px-6 pt-6 pb-4">
+          <button
+            onClick={onClose}
+            className="absolute top-3 right-3 bg-black/50 hover:bg-red-700 text-white rounded-full w-7 h-7 flex items-center justify-center text-lg transition-colors"
+          >
+            ×
+          </button>
+
+          <div className="flex items-end gap-4">
+            {/* Avatar con botón para cambiar */}
+            <div className="relative flex-shrink-0">
+              <Avatar user={user} size="lg" />
+              <button
+                onClick={() => photoRef.current?.click()}
+                disabled={photoUploading}
+                className="absolute -bottom-1 -right-1 w-7 h-7 bg-red-700 hover:bg-red-600 rounded-full flex items-center justify-center transition-colors disabled:opacity-50"
+                title="Cambiar foto"
+              >
+                {photoUploading ? (
+                  <svg className="w-3.5 h-3.5 text-white animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                  </svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                )}
+              </button>
+              <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
+            </div>
+
+            <div className="min-w-0">
+              <p className="text-white font-bold text-lg truncate">{user.displayName ?? "Usuario"}</p>
+              <p className="text-gray-400 text-xs truncate">{user.email}</p>
+              <p className="text-gray-500 text-xs mt-0.5">{myVideos.length} video{myVideos.length !== 1 ? "s" : ""} subido{myVideos.length !== 1 ? "s" : ""}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex border-b border-[#222]">
+          <button
+            onClick={() => setTab("info")}
+            className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${tab === "info" ? "text-red-500 border-b-2 border-red-600" : "text-gray-400 hover:text-white"}`}
+          >
+            Mi perfil
+          </button>
+          <button
+            onClick={() => setTab("videos")}
+            className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${tab === "videos" ? "text-red-500 border-b-2 border-red-600" : "text-gray-400 hover:text-white"}`}
+          >
+            Mis videos ({myVideos.length})
+          </button>
+        </div>
+
+        <div className="p-5">
+          {/* ── Tab: Perfil ── */}
+          {tab === "info" && (
+            <div className="flex flex-col gap-4">
+              {saveMsg && (
+                <div className={`text-xs rounded px-3 py-2 ${saveMsg.type === "ok" ? "text-green-400 bg-green-900/20 border border-green-800" : "text-red-400 bg-red-900/20 border border-red-800"}`}>
+                  {saveMsg.text}
+                </div>
+              )}
+
+              <form onSubmit={handleSaveName} className="flex flex-col gap-3">
+                <div>
+                  <label className="block text-xs text-gray-300 mb-1">Nombre de usuario</label>
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    maxLength={30}
+                    placeholder="Tu nombre en Nyxara"
+                    className="w-full px-3 py-2 bg-[#050505] border border-[#444] rounded text-white text-sm outline-none focus:border-red-600 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-300 mb-1">Correo electrónico</label>
+                  <input
+                    type="email"
+                    value={user.email ?? ""}
+                    disabled
+                    className="w-full px-3 py-2 bg-[#050505] border border-[#333] rounded text-gray-500 text-sm cursor-not-allowed"
+                  />
+                  <p className="text-xs text-gray-600 mt-1">El correo no se puede cambiar desde aquí.</p>
+                </div>
+                <button
+                  type="submit"
+                  disabled={saving || !username.trim() || username.trim() === user.displayName}
+                  className="w-full py-2 bg-red-700 hover:bg-red-600 text-white font-semibold rounded text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {saving ? "Guardando…" : "Guardar cambios"}
+                </button>
+              </form>
+
+              <div className="border-t border-[#222] pt-4">
+                <p className="text-xs text-gray-500 mb-2">Foto de perfil</p>
+                <button
+                  onClick={() => photoRef.current?.click()}
+                  disabled={photoUploading}
+                  className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] hover:bg-[#222] border border-[#333] rounded text-white text-sm transition-colors disabled:opacity-50"
+                >
+                  <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  {photoUploading ? "Subiendo…" : "Cambiar foto de perfil"}
+                </button>
+                <p className="text-xs text-gray-600 mt-1">JPG, PNG o GIF. Máximo 5 MB.</p>
+              </div>
+
+              <div className="border-t border-[#222] pt-4">
+                <button
+                  onClick={() => { signOut(auth); onClose(); }}
+                  className="w-full py-2 bg-[#1a1a1a] hover:bg-red-900/30 border border-[#333] hover:border-red-800 text-gray-300 hover:text-red-400 font-semibold rounded text-sm transition-all"
+                >
+                  Cerrar sesión
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Tab: Mis Videos ── */}
+          {tab === "videos" && (
+            <div>
+              {myVideos.length === 0 ? (
+                <div className="text-center py-8">
+                  <svg className="w-10 h-10 text-gray-700 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.723v6.554a1 1 0 01-1.447.894L15 14M4 6h8a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2z" />
+                  </svg>
+                  <p className="text-gray-500 text-sm">Todavía no has subido ningún video.</p>
+                  <button onClick={onClose} className="mt-3 text-xs text-red-500 hover:underline">
+                    Ir a subir video →
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3 max-h-80 overflow-y-auto pr-1">
+                  {myVideos.map((v, i) => (
+                    <div key={v.id} className="flex gap-3 items-center bg-[#0a0a0a] rounded-lg p-2 border border-[#1e1e1e] hover:border-red-900 transition-colors">
+                      <div className={`w-16 h-12 rounded flex-shrink-0 bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]} relative overflow-hidden`}>
+                        {v.thumbUrl && <img src={v.thumbUrl} alt={v.title} className="absolute inset-0 w-full h-full object-cover" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-white text-xs font-semibold truncate">{v.title}</p>
+                        <p className="text-gray-500 text-xs">{v.views.toLocaleString()} vistas</p>
+                        <p className="text-gray-600 text-xs">{v.createdAt ? timeAgo(v.createdAt.seconds) : "reciente"}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [entered, setEntered] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [imageModal, setImageModal] = useState<{ src: string; alt: string } | null>(null);
   const [videoModal, setVideoModal] = useState<VideoDoc | null>(null);
   const [search, setSearch] = useState("");
@@ -800,6 +1036,9 @@ export default function App() {
     <>
       {!entered && <AgeGate onEnter={() => setEntered(true)} />}
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
+      {showProfile && user && (
+        <ProfileModal user={user} videos={videos} onClose={() => setShowProfile(false)} />
+      )}
       {imageModal && (
         <ImageModal src={imageModal.src} alt={imageModal.alt} onClose={() => setImageModal(null)} />
       )}
@@ -837,17 +1076,16 @@ export default function App() {
           </form>
 
           {user ? (
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <span className="text-xs text-gray-400 hidden sm:block truncate max-w-[120px]">
+            <button
+              onClick={() => setShowProfile(true)}
+              className="flex items-center gap-2 flex-shrink-0 group"
+              title="Ver mi perfil"
+            >
+              <span className="text-xs text-gray-400 hidden sm:block truncate max-w-[100px] group-hover:text-white transition-colors">
                 {user.displayName ?? user.email}
               </span>
-              <button
-                onClick={() => signOut(auth)}
-                className="px-3 py-1.5 bg-[#333] hover:bg-[#444] text-white text-xs font-semibold rounded transition-colors"
-              >
-                Salir
-              </button>
-            </div>
+              <Avatar user={user} size="sm" />
+            </button>
           ) : (
             <button
               onClick={() => setShowAuth(true)}
