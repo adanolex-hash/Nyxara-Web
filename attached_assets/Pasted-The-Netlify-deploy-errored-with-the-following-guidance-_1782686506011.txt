@@ -1,0 +1,100 @@
+The Netlify deploy errored, with the following guidance provided:
+
+Diagnosis
+- Relevant log lines: [line 78](#L78) (vite build invoked), [line 80](#L80) (failed to load config from artifacts/nyxara/vite.config.ts), and [line 82](#L82) which shows the root cause: "Error: PORT environment variable is required but was not provided."
+- Cause: vite.config.ts throws/relies on a required PORT environment variable during config loading. Netlify's build environment does not provide PORT by default, so loading the Vite config fails and the build aborts. The config file implicated is artifacts/nyxara/vite.config.ts (repo file: https://github.com/adanolex-hash/Nyxara-Web/blob/replit-agent/artifacts/nyxara/vite.config.ts).
+
+Solution
+Option A — Preferred: Make vite.config.ts tolerate a missing PORT (recommended because the PORT is normally only needed for dev server)
+1. Edit artifacts/nyxara/vite.config.ts to provide a default or fall back instead of throwing when PORT is missing. Example change (TypeScript):
+```ts
+// before (example of the failing pattern)
+if (!process.env.PORT) {
+  throw new Error('PORT environment variable is required but was not provided.')
+}
+const port = Number(process.env.PORT)
+```
+```ts
+// after — use a sensible default for build/time when PORT is not set
+const port = Number(process.env.PORT ?? process.env.VITE_PORT ?? 5173)
+// or, if you only need PORT for dev server, conditionally require it:
+const isDev = process.env.NODE_ENV !== 'production'
+if (isDev && !process.env.PORT) {
+  throw new Error('PORT environment variable is required for local dev')
+}
+```
+2. Commit and push the change. This lets Netlify run the build without needing the PORT variable set.
+
+Option B — Set the environment variable in Netlify (quick workaround)
+1. In the Netlify UI go to Site settings → Build & deploy → Environment → Environment variables.
+2. Add a variable named PORT with a numeric value your app expects (e.g. 5173 or 3000).
+3. Trigger a rebuild.
+
+Notes
+- Prefer Option A because PORT is usually a runtime/dev setting; builds should not fail when it is absent.
+- If you also want local reproducible behavior, add PORT to your local .env or .env.development (but be careful about committing secrets).
+- The failing file referenced in the logs is artifacts/nyxara/vite.config.ts: https://github.com/adanolex-hash/Nyxara-Web/blob/replit-agent/artifacts/nyxara/vite.config.ts.
+
+The relevant error logs are:
+
+Line 0: build-image version: cbbb2660d860fe70694043ec05851a3910a2bf39 (noble-new-builds)
+Line 1: buildbot version: 863d78834c7df98fbadcc32a31460eb244115cc2
+Line 2: Fetching cached dependencies
+Line 3: Failed to fetch cache, continuing with build
+Line 4: Starting to prepare the repo for build
+Line 5: No cached dependencies found. Cloning fresh repo
+Line 6: git clone --filter=blob:none https://github.com/adanolex-hash/Nyxara-Web
+Line 7: Preparing Git Reference refs/heads/replit-agent
+Line 8: Installing dependencies
+Line 9: mise ~/.config/mise/config.toml tools: python@3.14.3
+Line 10: mise ~/.config/mise/config.toml tools: ruby@3.4.8
+Line 11: mise ~/.config/mise/config.toml tools: go@1.26.2
+Line 12: Downloading and installing node v22.23.1...
+Line 13: Downloading https://nodejs.org/dist/v22.23.1/node-v22.23.1-linux-x64.tar.xz...
+Line 69: ​
+Line 70: ❯ Context
+Line 71:   production
+Line 72: ​
+Line 73: Build command from Netlify app                                
+Line 74: ────────────────────────────────────────────────────────────────
+Line 75: ​
+Line 76: $ pnpm --filter @workspace/nyxara... run build
+Line 77: Scope: 2 of 9 workspace projects
+Line 78: artifacts/nyxara build$ vite build --config vite.config.ts
+Line 79: Failed during stage 'building site': Build script returned non-zero exit code: 2
+Line 80: artifacts/nyxara build: failed to load config from /opt/build/repo/artifacts/nyxara/vite.config.ts
+Line 81: artifacts/nyxara build: error during build:
+Line 82: artifacts/nyxara build: Error: PORT environment variable is required but was not provided.
+Line 83: artifacts/nyxara build:     at file:///opt/build/repo/artifacts/nyxara/node_modules/.vite-temp/vite.con
+Line 84: artifacts/nyxara build:     at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+Line 85: artifacts/nyxara build:     at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:
+Line 86: artifacts/nyxara build:     at async loadConfigFromBundledFile (file:///opt/build/repo/node_modules/.pn
+Line 87: artifacts/nyxara build:     at async bundleAndLoadConfigFile (file:///opt/build/repo/node_modules/.pnpm
+Line 88: artifacts/nyxara build:     at async loadConfigFromFile (file:///opt/build/repo/node_modules/.pnpm/vite
+Line 89: artifacts/nyxara build:     at async resolveConfig (file:///opt/build/repo/node_modules/.pnpm/vite@7.3.
+Line 90: artifacts/nyxara build:     at async createBuilder (file:///opt/build/repo/node_modules/.pnpm/vite@7.3.
+Line 91: artifacts/nyxara build:     at async CAC.<anonymous> (file:///opt/build/repo/node_modules/.pnpm/vite@7.
+Line 92: artifacts/nyxara build: Failed
+Line 93: /opt/build/repo/artifacts/nyxara:
+Line 94:  ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/nyxara@0.0.0 build: `vite build --config vite.config.ts`
+Line 95: Exit status 1
+Line 96: ​
+Line 97: "build.command" failed                                        
+Line 98: ────────────────────────────────────────────────────────────────
+Line 99: ​
+Line 100:   Error message
+Line 101:   Command failed with exit code 1: pnpm --filter @workspace/nyxara... run build
+Line 102: ​
+Line 103:   Error location
+Line 104:   In Build command from Netlify app:
+Line 105:   pnpm --filter @workspace/nyxara... run build
+Line 106: ​
+Line 107:   Resolved config
+Line 108:   build:
+Line 109:     command: pnpm --filter @workspace/nyxara... run build
+Line 110:     commandOrigin: ui
+Line 111:     publish: /opt/build/repo/artifacts/nyxara/dist
+Line 112:     publishOrigin: ui
+Line 113: Build failed due to a user error: Build script returned non-zero exit code: 2
+Line 114: Failing build: Failed to build site
+Line 115: Finished processing build request in 17.997s
