@@ -17,6 +17,13 @@ import {
   query,
   orderBy,
   serverTimestamp,
+  doc,
+  setDoc,
+  deleteDoc,
+  getDoc,
+  where,
+  increment,
+  updateDoc,
 } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { auth, db, storage, googleProvider } from "./firebase";
@@ -37,7 +44,19 @@ interface VideoDoc {
   uploadedBy: string;
   displayName: string;
   views: number;
+  likes: number;
   createdAt: { seconds: number } | null;
+}
+
+interface CommentDoc {
+  id: string;
+  videoId: string;
+  uid: string;
+  displayName: string;
+  photoURL: string;
+  text: string;
+  createdAt: { seconds: number } | null;
+  reported: boolean;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -545,32 +564,251 @@ function ImageModal({ src, alt, onClose }: { src: string; alt: string; onClose: 
 
 // ─── Video Player Modal ───────────────────────────────────────────────────────
 
-function VideoModal({ video, onClose }: { video: VideoDoc; onClose: () => void }) {
+function VideoModal({
+  video,
+  user,
+  onClose,
+  onShowAuth,
+}: {
+  video: VideoDoc;
+  user: User | null;
+  onClose: () => void;
+  onShowAuth: () => void;
+}) {
+  const [liked, setLiked] = useState(false);
+  const [likeCount, setLikeCount] = useState(video.likes ?? 0);
+  const [liking, setLiking] = useState(false);
+  const [faved, setFaved] = useState(false);
+  const [faving, setFaving] = useState(false);
+  const [comments, setComments] = useState<CommentDoc[]>([]);
+  const [commentText, setCommentText] = useState("");
+  const [sendingComment, setSendingComment] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const commentInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Load liked/faved state on mount
+  useEffect(() => {
+    if (!user) return;
+    const likeId = `${video.id}_${user.uid}`;
+    getDoc(doc(db, "likes", likeId)).then((s) => setLiked(s.exists()));
+    getDoc(doc(db, "favorites", `${user.uid}_${video.id}`)).then((s) => setFaved(s.exists()));
+  }, [user, video.id]);
+
+  // Real-time comments
+  useEffect(() => {
+    const q = query(
+      collection(db, "comments"),
+      where("videoId", "==", video.id),
+      orderBy("createdAt", "asc")
+    );
+    return onSnapshot(q, (snap) => {
+      setComments(
+        snap.docs
+          .filter((d) => !d.data().reported)
+          .map((d) => ({ id: d.id, ...(d.data() as Omit<CommentDoc, "id">) }))
+      );
+    });
+  }, [video.id]);
+
+  async function toggleLike() {
+    if (!user) { onShowAuth(); return; }
+    if (liking) return;
+    setLiking(true);
+    const likeId = `${video.id}_${user.uid}`;
+    const likeRef = doc(db, "likes", likeId);
+    const videoRef = doc(db, "videos", video.id);
+    try {
+      if (liked) {
+        await deleteDoc(likeRef);
+        await updateDoc(videoRef, { likes: increment(-1) });
+        setLikeCount((n) => Math.max(0, n - 1));
+        setLiked(false);
+      } else {
+        await setDoc(likeRef, { videoId: video.id, uid: user.uid });
+        await updateDoc(videoRef, { likes: increment(1) });
+        setLikeCount((n) => n + 1);
+        setLiked(true);
+      }
+    } finally {
+      setLiking(false);
+    }
+  }
+
+  async function toggleFavorite() {
+    if (!user) { onShowAuth(); return; }
+    if (faving) return;
+    setFaving(true);
+    const favRef = doc(db, "favorites", `${user.uid}_${video.id}`);
+    try {
+      if (faved) {
+        await deleteDoc(favRef);
+        setFaved(false);
+      } else {
+        await setDoc(favRef, { uid: user.uid, videoId: video.id, createdAt: serverTimestamp() });
+        setFaved(true);
+      }
+    } finally {
+      setFaving(false);
+    }
+  }
+
+  async function submitComment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user) { onShowAuth(); return; }
+    const text = commentText.trim();
+    if (!text || text.length > 500) return;
+    setSendingComment(true);
+    try {
+      await addDoc(collection(db, "comments"), {
+        videoId: video.id,
+        uid: user.uid,
+        displayName: user.displayName ?? user.email ?? "Usuario",
+        photoURL: user.photoURL ?? "",
+        text,
+        createdAt: serverTimestamp(),
+        reported: false,
+      });
+      setCommentText("");
+    } finally {
+      setSendingComment(false);
+    }
+  }
+
+  async function reportComment(commentId: string) {
+    await updateDoc(doc(db, "comments", commentId), { reported: true });
+  }
+
   return (
     <div
-      className="fixed inset-0 z-[900] bg-black/90 flex items-center justify-center p-4"
+      className="fixed inset-0 z-[900] bg-black/90 flex items-center justify-center p-4 overflow-y-auto"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="relative w-full max-w-2xl animate-modal-in">
+      <div className="relative w-full max-w-2xl animate-modal-in my-auto">
         <button
           onClick={onClose}
           className="absolute -top-3 -right-3 bg-red-700 text-white rounded-full w-7 h-7 text-lg flex items-center justify-center hover:bg-red-600 transition-colors z-10"
         >
           ×
         </button>
+
+        {/* Video */}
         <video
           src={video.url}
           controls
           autoPlay
-          className="w-full rounded-lg bg-black"
-          style={{ maxHeight: "70vh" }}
+          className="w-full rounded-t-lg bg-black"
+          style={{ maxHeight: "60vh" }}
         />
-        <div className="mt-3 px-1">
-          <h3 className="text-white font-semibold">{video.title}</h3>
+
+        {/* Info + acciones */}
+        <div className="bg-[#0d0d0d] rounded-b-lg px-4 pt-3 pb-4">
+          <h3 className="text-white font-semibold text-base leading-snug">{video.title}</h3>
           {video.description && (
             <p className="text-gray-400 text-sm mt-1">{video.description}</p>
           )}
-          <p className="text-gray-500 text-xs mt-1">Subido por {video.displayName}</p>
+          <p className="text-gray-500 text-xs mt-1">
+            Subido por <span className="text-gray-400">{video.displayName}</span> ·{" "}
+            {video.views.toLocaleString()} vistas ·{" "}
+            {video.createdAt ? timeAgo(video.createdAt.seconds) : "reciente"}
+          </p>
+
+          {/* Botones like / fav / comentarios */}
+          <div className="flex items-center gap-3 mt-3 pt-3 border-t border-[#1e1e1e]">
+            {/* Like */}
+            <button
+              onClick={toggleLike}
+              disabled={liking}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-semibold transition-all ${liked ? "bg-red-700 text-white" : "bg-[#1a1a1a] text-gray-300 hover:bg-red-900/30 hover:text-red-400"}`}
+            >
+              <svg className="w-4 h-4" fill={liked ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+              </svg>
+              {likeCount > 0 ? likeCount.toLocaleString() : "Me gusta"}
+            </button>
+
+            {/* Favorito */}
+            <button
+              onClick={toggleFavorite}
+              disabled={faving}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-semibold transition-all ${faved ? "bg-yellow-600/80 text-white" : "bg-[#1a1a1a] text-gray-300 hover:bg-yellow-900/30 hover:text-yellow-400"}`}
+            >
+              <svg className="w-4 h-4" fill={faved ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+              </svg>
+              {faved ? "Guardado" : "Guardar"}
+            </button>
+
+            {/* Comentarios toggle */}
+            <button
+              onClick={() => { setShowComments((v) => !v); setTimeout(() => commentInputRef.current?.focus(), 100); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-semibold bg-[#1a1a1a] text-gray-300 hover:bg-[#222] transition-all ml-auto"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              {comments.length > 0 ? `${comments.length} comentario${comments.length !== 1 ? "s" : ""}` : "Comentar"}
+            </button>
+          </div>
+
+          {/* Sección comentarios */}
+          {showComments && (
+            <div className="mt-4 border-t border-[#1e1e1e] pt-3">
+              {/* Input nuevo comentario */}
+              <form onSubmit={submitComment} className="flex gap-2 mb-4">
+                <textarea
+                  ref={commentInputRef}
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  placeholder={user ? "Escribe un comentario…" : "Inicia sesión para comentar"}
+                  disabled={!user || sendingComment}
+                  rows={2}
+                  maxLength={500}
+                  className="flex-1 px-3 py-2 bg-[#050505] border border-[#333] rounded text-white text-sm outline-none focus:border-red-600 resize-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+                <button
+                  type="submit"
+                  disabled={!user || sendingComment || !commentText.trim()}
+                  className="px-3 py-2 bg-red-700 hover:bg-red-600 text-white text-xs font-semibold rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed self-end"
+                >
+                  {sendingComment ? "…" : "Enviar"}
+                </button>
+              </form>
+
+              {/* Lista de comentarios */}
+              {comments.length === 0 ? (
+                <p className="text-gray-600 text-xs text-center py-4">Sé el primero en comentar.</p>
+              ) : (
+                <div className="flex flex-col gap-3 max-h-52 overflow-y-auto pr-1">
+                  {comments.map((c) => (
+                    <div key={c.id} className="flex gap-2 group">
+                      <div className="w-7 h-7 rounded-full bg-red-900 border border-red-800 flex-shrink-0 flex items-center justify-center text-xs font-bold text-white overflow-hidden">
+                        {c.photoURL
+                          ? <img src={c.photoURL} alt={c.displayName} className="w-full h-full object-cover" />
+                          : c.displayName.slice(0, 2).toUpperCase()
+                        }
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-xs font-semibold text-gray-300">{c.displayName}</span>
+                          <span className="text-xs text-gray-600">{c.createdAt ? timeAgo(c.createdAt.seconds) : "ahora"}</span>
+                        </div>
+                        <p className="text-sm text-gray-200 break-words">{c.text}</p>
+                      </div>
+                      {user && user.uid !== c.uid && (
+                        <button
+                          onClick={() => reportComment(c.id)}
+                          className="opacity-0 group-hover:opacity-100 text-xs text-gray-600 hover:text-red-500 transition-all flex-shrink-0 self-start mt-0.5"
+                          title="Reportar comentario"
+                        >
+                          ⚑
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -778,15 +1016,30 @@ function Avatar({ user, size = "sm" }: { user: User; size?: "sm" | "md" | "lg" }
 
 // ─── Profile Modal ────────────────────────────────────────────────────────────
 
-function ProfileModal({ user, videos, onClose }: { user: User; videos: VideoDoc[]; onClose: () => void }) {
-  const [tab, setTab] = useState<"info" | "videos">("info");
+function ProfileModal({ user, videos, onClose, onOpenVideo }: { user: User; videos: VideoDoc[]; onClose: () => void; onOpenVideo: (v: VideoDoc) => void }) {
+  const [tab, setTab] = useState<"info" | "videos" | "favoritos">("info");
   const [username, setUsername] = useState(user.displayName ?? "");
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const photoRef = useRef<HTMLInputElement>(null);
+  const [favVideos, setFavVideos] = useState<VideoDoc[]>([]);
+  const [loadingFavs, setLoadingFavs] = useState(false);
 
   const myVideos = videos.filter((v) => v.uploadedBy === user.uid);
+
+  // Cargar favoritos cuando se activa la pestaña
+  useEffect(() => {
+    if (tab !== "favoritos") return;
+    setLoadingFavs(true);
+    const q = query(collection(db, "favorites"), where("uid", "==", user.uid), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snap) => {
+      const favIds = snap.docs.map((d) => d.data().videoId as string);
+      setFavVideos(videos.filter((v) => favIds.includes(v.id)));
+      setLoadingFavs(false);
+    });
+    return unsub;
+  }, [tab, user.uid, videos]);
 
   async function handleSaveName(e: React.FormEvent) {
     e.preventDefault();
@@ -879,15 +1132,21 @@ function ProfileModal({ user, videos, onClose }: { user: User; videos: VideoDoc[
         <div className="flex border-b border-[#222]">
           <button
             onClick={() => setTab("info")}
-            className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${tab === "info" ? "text-red-500 border-b-2 border-red-600" : "text-gray-400 hover:text-white"}`}
+            className={`flex-1 py-2.5 text-xs font-semibold transition-colors ${tab === "info" ? "text-red-500 border-b-2 border-red-600" : "text-gray-400 hover:text-white"}`}
           >
             Mi perfil
           </button>
           <button
             onClick={() => setTab("videos")}
-            className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${tab === "videos" ? "text-red-500 border-b-2 border-red-600" : "text-gray-400 hover:text-white"}`}
+            className={`flex-1 py-2.5 text-xs font-semibold transition-colors ${tab === "videos" ? "text-red-500 border-b-2 border-red-600" : "text-gray-400 hover:text-white"}`}
           >
             Mis videos ({myVideos.length})
+          </button>
+          <button
+            onClick={() => setTab("favoritos")}
+            className={`flex-1 py-2.5 text-xs font-semibold transition-colors ${tab === "favoritos" ? "text-red-500 border-b-2 border-red-600" : "text-gray-400 hover:text-white"}`}
+          >
+            Favoritos
           </button>
         </div>
 
@@ -974,7 +1233,52 @@ function ProfileModal({ user, videos, onClose }: { user: User; videos: VideoDoc[
               ) : (
                 <div className="flex flex-col gap-3 max-h-80 overflow-y-auto pr-1">
                   {myVideos.map((v, i) => (
-                    <div key={v.id} className="flex gap-3 items-center bg-[#0a0a0a] rounded-lg p-2 border border-[#1e1e1e] hover:border-red-900 transition-colors">
+                    <button
+                      key={v.id}
+                      onClick={() => { onClose(); onOpenVideo(v); }}
+                      className="flex gap-3 items-center bg-[#0a0a0a] rounded-lg p-2 border border-[#1e1e1e] hover:border-red-900 transition-colors text-left w-full"
+                    >
+                      <div className={`w-16 h-12 rounded flex-shrink-0 bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]} relative overflow-hidden`}>
+                        {v.thumbUrl && <img src={v.thumbUrl} alt={v.title} className="absolute inset-0 w-full h-full object-cover" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-white text-xs font-semibold truncate">{v.title}</p>
+                        <p className="text-gray-500 text-xs">{v.views.toLocaleString()} vistas · {(v.likes ?? 0) > 0 ? `${v.likes} ❤` : ""}</p>
+                        <p className="text-gray-600 text-xs">{v.createdAt ? timeAgo(v.createdAt.seconds) : "reciente"}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Tab: Favoritos ── */}
+          {tab === "favoritos" && (
+            <div>
+              {loadingFavs ? (
+                <div className="flex justify-center py-8">
+                  <svg className="w-6 h-6 text-red-700 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                  </svg>
+                </div>
+              ) : favVideos.length === 0 ? (
+                <div className="text-center py-8">
+                  <svg className="w-10 h-10 text-gray-700 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                  </svg>
+                  <p className="text-gray-500 text-sm">No tienes videos guardados todavía.</p>
+                  <p className="text-gray-600 text-xs mt-1">Guarda videos con el botón 🔖 al verlos.</p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3 max-h-80 overflow-y-auto pr-1">
+                  {favVideos.map((v, i) => (
+                    <button
+                      key={v.id}
+                      onClick={() => { onClose(); onOpenVideo(v); }}
+                      className="flex gap-3 items-center bg-[#0a0a0a] rounded-lg p-2 border border-[#1e1e1e] hover:border-yellow-900 transition-colors text-left w-full"
+                    >
                       <div className={`w-16 h-12 rounded flex-shrink-0 bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]} relative overflow-hidden`}>
                         {v.thumbUrl && <img src={v.thumbUrl} alt={v.title} className="absolute inset-0 w-full h-full object-cover" />}
                       </div>
@@ -983,7 +1287,10 @@ function ProfileModal({ user, videos, onClose }: { user: User; videos: VideoDoc[
                         <p className="text-gray-500 text-xs">{v.views.toLocaleString()} vistas</p>
                         <p className="text-gray-600 text-xs">{v.createdAt ? timeAgo(v.createdAt.seconds) : "reciente"}</p>
                       </div>
-                    </div>
+                      <svg className="w-4 h-4 text-yellow-600 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                      </svg>
+                    </button>
                   ))}
                 </div>
               )}
@@ -1037,13 +1344,23 @@ export default function App() {
       {!entered && <AgeGate onEnter={() => setEntered(true)} />}
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
       {showProfile && user && (
-        <ProfileModal user={user} videos={videos} onClose={() => setShowProfile(false)} />
+        <ProfileModal
+          user={user}
+          videos={videos}
+          onClose={() => setShowProfile(false)}
+          onOpenVideo={(v) => { setShowProfile(false); setVideoModal(v); }}
+        />
       )}
       {imageModal && (
         <ImageModal src={imageModal.src} alt={imageModal.alt} onClose={() => setImageModal(null)} />
       )}
       {videoModal && (
-        <VideoModal video={videoModal} onClose={() => setVideoModal(null)} />
+        <VideoModal
+          video={videoModal}
+          user={user}
+          onClose={() => setVideoModal(null)}
+          onShowAuth={() => { setVideoModal(null); setShowAuth(true); }}
+        />
       )}
 
       <div
@@ -1155,7 +1472,6 @@ export default function App() {
                 {filtered.map((video, i) => (
                   <article
                     key={video.id}
-                    onClick={() => setVideoModal(video)}
                     className="bg-[#111] rounded overflow-hidden cursor-pointer group transition-all hover:-translate-y-1"
                     onMouseEnter={(e) => {
                       (e.currentTarget as HTMLElement).style.boxShadow =
@@ -1165,7 +1481,10 @@ export default function App() {
                       (e.currentTarget as HTMLElement).style.boxShadow = "none";
                     }}
                   >
-                    <div className={`relative h-28 bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]}`}>
+                    <div
+                      className={`relative h-28 bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]}`}
+                      onClick={() => setVideoModal(video)}
+                    >
                       {video.thumbUrl && (
                         <img
                           src={video.thumbUrl}
@@ -1181,14 +1500,24 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                    <div className="p-2">
+                    <div className="p-2" onClick={() => setVideoModal(video)}>
                       <h3 className="text-xs font-semibold text-white leading-snug line-clamp-2 mb-1">
                         {video.title}
                       </h3>
-                      <p className="text-xs text-gray-400">
-                        {video.views.toLocaleString()} vistas ·{" "}
-                        {video.createdAt ? timeAgo(video.createdAt.seconds) : "reciente"}
-                      </p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-gray-400">
+                          {video.views.toLocaleString()} vistas ·{" "}
+                          {video.createdAt ? timeAgo(video.createdAt.seconds) : "reciente"}
+                        </p>
+                        {(video.likes ?? 0) > 0 && (
+                          <span className="flex items-center gap-0.5 text-xs text-red-500">
+                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                            </svg>
+                            {video.likes}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </article>
                 ))}
