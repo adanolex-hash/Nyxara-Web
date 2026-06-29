@@ -6,3 +6,15 @@ id = "UUdZ3m5eVg_LCXGse2F5g"
 uri = "file://nyxara-netlify.zip"
 type = "unspecified"
 title = "Nyxara — archivos listos para Netlify"
+
+[[outputs]]
+id = "--DU0qvY5ixtrLnVjTHvD"
+uri = "file://nyxara-build.zip"
+type = "unspecified"
+title = "Nyxara — HTML + CSS + JS (build completo)"
+
+[[outputs]]
+id = "vO4wDZAvgpQ4JcRRr_hA7"
+uri = "file://nyxara-build.tar.gz"
+type = "unspecified"
+title = "Nyxara — HTML + CSS + JS (build completo)"
