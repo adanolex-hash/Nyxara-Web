@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "UUdZ3m5eVg_LCXGse2F5g"
+uri = "file://nyxara-netlify.zip"
+type = "unspecified"
+title = "Nyxara — archivos listos para Netlify"
