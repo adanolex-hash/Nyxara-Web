@@ -587,11 +587,13 @@ function VideoModal({
   user,
   onClose,
   onShowAuth,
+  onCreatorClick,
 }: {
   video: VideoDoc;
   user: User | null;
   onClose: () => void;
   onShowAuth: () => void;
+  onCreatorClick: (uid: string, displayName: string) => void;
 }) {
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(video.likes ?? 0);
@@ -725,8 +727,14 @@ function VideoModal({
             <p className="text-gray-400 text-sm mt-1">{video.description}</p>
           )}
           <p className="text-gray-500 text-xs mt-1">
-            Subido por <span className="text-gray-400">{video.displayName}</span> ·{" "}
-            {video.views.toLocaleString()} vistas ·{" "}
+            Subido por{" "}
+            <button
+              onClick={() => { onClose(); onCreatorClick(video.uploadedBy, video.displayName); }}
+              className="text-gray-400 hover:text-red-500 hover:underline transition-colors"
+            >
+              {video.displayName}
+            </button>
+            {" "}· {video.views.toLocaleString()} vistas ·{" "}
             {video.createdAt ? timeAgo(video.createdAt.seconds) : "reciente"}
           </p>
 
@@ -825,6 +833,100 @@ function VideoModal({
                   ))}
                 </div>
               )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Creator Modal (perfil público) ──────────────────────────────────────────
+
+function CreatorModal({
+  uid,
+  displayName,
+  photoURL,
+  videos,
+  onClose,
+  onOpenVideo,
+}: {
+  uid: string;
+  displayName: string;
+  photoURL?: string | null;
+  videos: VideoDoc[];
+  onClose: () => void;
+  onOpenVideo: (v: VideoDoc) => void;
+}) {
+  const creatorVideos = videos.filter((v) => v.uploadedBy === uid);
+  const totalViews   = creatorVideos.reduce((s, v) => s + (v.views ?? 0), 0);
+  const totalLikes   = creatorVideos.reduce((s, v) => s + (v.likes ?? 0), 0);
+  const initials     = displayName.slice(0, 2).toUpperCase();
+
+  return (
+    <div
+      className="fixed inset-0 z-[950] bg-black/85 flex items-center justify-center p-4 overflow-y-auto"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="w-full max-w-md bg-[#111] rounded-lg animate-modal-in my-auto overflow-hidden">
+        {/* Header */}
+        <div className="relative bg-gradient-to-br from-red-950 via-black to-gray-900 px-6 py-6">
+          <button onClick={onClose} className="absolute top-3 right-3 bg-black/50 hover:bg-red-700 text-white rounded-full w-7 h-7 flex items-center justify-center text-lg transition-colors">×</button>
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 rounded-full bg-red-900 border-2 border-red-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
+              {photoURL
+                ? <img src={photoURL} alt={displayName} className="w-full h-full object-cover" />
+                : <span className="text-xl font-bold text-white">{initials}</span>
+              }
+            </div>
+            <div>
+              <p className="text-white text-lg font-bold">{displayName}</p>
+              <p className="text-gray-400 text-xs mt-0.5">Creador en Nyxara</p>
+            </div>
+          </div>
+          {/* Stats row */}
+          <div className="flex gap-4 mt-4">
+            {[
+              { label: "Videos", value: creatorVideos.length },
+              { label: "Vistas", value: totalViews.toLocaleString() },
+              { label: "Likes", value: totalLikes.toLocaleString() },
+            ].map(({ label, value }) => (
+              <div key={label} className="flex-1 text-center bg-black/30 rounded-lg py-2">
+                <p className="text-white font-bold text-base">{value}</p>
+                <p className="text-gray-400 text-xs">{label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Videos del creador */}
+        <div className="p-4">
+          <p className="text-xs text-gray-500 uppercase font-semibold mb-3">Videos publicados</p>
+          {creatorVideos.length === 0 ? (
+            <p className="text-gray-600 text-sm text-center py-6">Este creador aún no ha subido videos.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
+              {creatorVideos.map((v, i) => (
+                <button
+                  key={v.id}
+                  onClick={() => { onClose(); onOpenVideo(v); }}
+                  className="relative rounded overflow-hidden group text-left"
+                >
+                  <div className={`h-20 bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]} relative`}>
+                    {v.thumbUrl && <img src={v.thumbUrl} alt={v.title} className="absolute inset-0 w-full h-full object-cover" />}
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                      <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    </div>
+                  </div>
+                  <div className="bg-[#0d0d0d] px-2 py-1.5">
+                    <p className="text-white text-xs font-semibold truncate">{v.title}</p>
+                    <div className="flex items-center gap-2 text-gray-500 text-xs">
+                      <span>{v.views.toLocaleString()} vistas</span>
+                      {(v.likes ?? 0) > 0 && <span className="text-red-500">❤ {v.likes}</span>}
+                    </div>
+                  </div>
+                </button>
+              ))}
             </div>
           )}
         </div>
@@ -1051,7 +1153,7 @@ function Avatar({ user, size = "sm" }: { user: User; size?: "sm" | "md" | "lg" }
 // ─── Profile Modal ────────────────────────────────────────────────────────────
 
 function ProfileModal({ user, videos, onClose, onOpenVideo }: { user: User; videos: VideoDoc[]; onClose: () => void; onOpenVideo: (v: VideoDoc) => void }) {
-  const [tab, setTab] = useState<"info" | "videos" | "favoritos">("info");
+  const [tab, setTab] = useState<"info" | "videos" | "favoritos" | "stats">("info");
   const [username, setUsername] = useState(user.displayName ?? "");
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -1164,24 +1266,15 @@ function ProfileModal({ user, videos, onClose, onOpenVideo }: { user: User; vide
 
         {/* Tabs */}
         <div className="flex border-b border-[#222]">
-          <button
-            onClick={() => setTab("info")}
-            className={`flex-1 py-2.5 text-xs font-semibold transition-colors ${tab === "info" ? "text-red-500 border-b-2 border-red-600" : "text-gray-400 hover:text-white"}`}
-          >
-            Mi perfil
-          </button>
-          <button
-            onClick={() => setTab("videos")}
-            className={`flex-1 py-2.5 text-xs font-semibold transition-colors ${tab === "videos" ? "text-red-500 border-b-2 border-red-600" : "text-gray-400 hover:text-white"}`}
-          >
-            Mis videos ({myVideos.length})
-          </button>
-          <button
-            onClick={() => setTab("favoritos")}
-            className={`flex-1 py-2.5 text-xs font-semibold transition-colors ${tab === "favoritos" ? "text-red-500 border-b-2 border-red-600" : "text-gray-400 hover:text-white"}`}
-          >
-            Favoritos
-          </button>
+          {(["info","videos","favoritos","stats"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`flex-1 py-2.5 text-[10px] font-semibold transition-colors ${tab === t ? "text-red-500 border-b-2 border-red-600" : "text-gray-400 hover:text-white"}`}
+            >
+              {t === "info" ? "Perfil" : t === "videos" ? `Videos (${myVideos.length})` : t === "favoritos" ? "Favoritos" : "Estadísticas"}
+            </button>
+          ))}
         </div>
 
         <div className="p-5">
@@ -1330,6 +1423,82 @@ function ProfileModal({ user, videos, onClose, onOpenVideo }: { user: User; vide
               )}
             </div>
           )}
+
+          {/* ── Tab: Estadísticas ── */}
+          {tab === "stats" && (() => {
+            const totalViews = myVideos.reduce((s, v) => s + (v.views ?? 0), 0);
+            const totalLikes = myVideos.reduce((s, v) => s + (v.likes ?? 0), 0);
+            const topVideo   = [...myVideos].sort((a, b) => (b.views ?? 0) - (a.views ?? 0))[0];
+            const catCount   = myVideos.reduce<Record<string, number>>((acc, v) => {
+              const c = v.category ?? "Otros";
+              acc[c] = (acc[c] ?? 0) + 1;
+              return acc;
+            }, {});
+            const maxCatCount = Math.max(1, ...Object.values(catCount));
+
+            return (
+              <div className="flex flex-col gap-4">
+                {/* KPIs */}
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { label: "Videos", value: myVideos.length, icon: "🎬" },
+                    { label: "Vistas", value: totalViews.toLocaleString(), icon: "👁" },
+                    { label: "Likes", value: totalLikes.toLocaleString(), icon: "❤️" },
+                  ].map(({ label, value, icon }) => (
+                    <div key={label} className="bg-[#0a0a0a] border border-[#1e1e1e] rounded-lg p-3 text-center">
+                      <div className="text-xl mb-1">{icon}</div>
+                      <p className="text-white font-bold text-sm">{value}</p>
+                      <p className="text-gray-500 text-xs">{label}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Video más visto */}
+                {topVideo && (
+                  <div>
+                    <p className="text-xs text-gray-500 uppercase font-semibold mb-2">Video más visto</p>
+                    <button
+                      onClick={() => { onClose(); onOpenVideo(topVideo); }}
+                      className="flex gap-3 items-center bg-[#0a0a0a] rounded-lg p-2 border border-red-900/40 hover:border-red-700 transition-colors text-left w-full"
+                    >
+                      <div className={`w-14 h-10 rounded flex-shrink-0 bg-gradient-to-br ${GRADIENTS[0]} relative overflow-hidden`}>
+                        {topVideo.thumbUrl && <img src={topVideo.thumbUrl} alt={topVideo.title} className="absolute inset-0 w-full h-full object-cover" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-white text-xs font-semibold truncate">{topVideo.title}</p>
+                        <p className="text-gray-500 text-xs">{(topVideo.views ?? 0).toLocaleString()} vistas · {(topVideo.likes ?? 0)} likes</p>
+                      </div>
+                    </button>
+                  </div>
+                )}
+
+                {/* Por categoría */}
+                {Object.keys(catCount).length > 0 && (
+                  <div>
+                    <p className="text-xs text-gray-500 uppercase font-semibold mb-2">Videos por categoría</p>
+                    <div className="flex flex-col gap-1.5">
+                      {Object.entries(catCount).sort((a, b) => b[1] - a[1]).map(([cat, count]) => (
+                        <div key={cat} className="flex items-center gap-2">
+                          <span className="text-xs text-gray-400 w-20 flex-shrink-0 truncate">{cat}</span>
+                          <div className="flex-1 h-2 bg-[#1a1a1a] rounded overflow-hidden">
+                            <div
+                              className="h-full bg-red-700 rounded transition-all"
+                              style={{ width: `${(count / maxCatCount) * 100}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-gray-500 w-4 text-right">{count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {myVideos.length === 0 && (
+                  <p className="text-gray-600 text-sm text-center py-4">Sube videos para ver tus estadísticas.</p>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>
@@ -1344,13 +1513,22 @@ export default function App() {
   const [showProfile, setShowProfile] = useState(false);
   const [imageModal, setImageModal] = useState<{ src: string; alt: string } | null>(null);
   const [videoModal, setVideoModal] = useState<VideoDoc | null>(null);
+  const [creatorModal, setCreatorModal] = useState<{ uid: string; displayName: string } | null>(null);
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("Todas");
   const [sortBy, setSortBy] = useState<"recientes" | "vistos" | "likes">("recientes");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem("nyxara-theme") !== "light");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [videos, setVideos] = useState<VideoDoc[]>([]);
   const [loadingVideos, setLoadingVideos] = useState(true);
+
+  // Dark/light mode — aplica data-theme al <html>
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
+    localStorage.setItem("nyxara-theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
 
   // Auth listener
   useEffect(() => {
@@ -1410,6 +1588,15 @@ export default function App() {
           onOpenVideo={(v) => { setShowProfile(false); setVideoModal(v); }}
         />
       )}
+      {creatorModal && (
+        <CreatorModal
+          uid={creatorModal.uid}
+          displayName={creatorModal.displayName}
+          videos={videos}
+          onClose={() => setCreatorModal(null)}
+          onOpenVideo={(v) => { setCreatorModal(null); setVideoModal(v); }}
+        />
+      )}
       {imageModal && (
         <ImageModal src={imageModal.src} alt={imageModal.alt} onClose={() => setImageModal(null)} />
       )}
@@ -1419,6 +1606,7 @@ export default function App() {
           user={user}
           onClose={() => setVideoModal(null)}
           onShowAuth={() => { setVideoModal(null); setShowAuth(true); }}
+          onCreatorClick={(uid, displayName) => { setVideoModal(null); setCreatorModal({ uid, displayName }); }}
         />
       )}
 
@@ -1426,59 +1614,85 @@ export default function App() {
         className={`min-h-screen flex flex-col transition-opacity duration-300 ${entered ? "opacity-100" : "opacity-0 pointer-events-none"}`}
       >
         {/* ── Topbar ── */}
-        <header className="flex items-center justify-between px-4 py-2 bg-black border-b-2 border-red-700 sticky top-0 z-50">
-          <a href="#inicio" className="flex-shrink-0">
-            <img
-              src={introImg}
-              alt="Nyxara"
-              className="h-10 w-10 rounded-full object-cover border border-red-700"
-            />
-          </a>
+        <header className="ny-header flex items-center justify-between px-4 py-2 bg-black border-b-2 border-red-700 sticky top-0 z-50 transition-colors">
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Hamburguesa — solo móvil */}
+            <button
+              onClick={() => setMobileMenuOpen((o) => !o)}
+              className="sm:hidden flex flex-col justify-center gap-[5px] w-8 h-8 rounded hover:bg-red-900/30 transition-colors p-1"
+              aria-label="Menú"
+            >
+              <span className={`block h-0.5 bg-white rounded transition-all duration-200 ${mobileMenuOpen ? "rotate-45 translate-y-[7px]" : ""}`} />
+              <span className={`block h-0.5 bg-white rounded transition-all duration-200 ${mobileMenuOpen ? "opacity-0" : ""}`} />
+              <span className={`block h-0.5 bg-white rounded transition-all duration-200 ${mobileMenuOpen ? "-rotate-45 -translate-y-[7px]" : ""}`} />
+            </button>
 
-          <form className="flex flex-1 max-w-lg mx-4" onSubmit={(e) => e.preventDefault()}>
+            <a href="#inicio" className="flex-shrink-0">
+              <img
+                src={introImg}
+                alt="Nyxara"
+                className="h-9 w-9 rounded-full object-cover border border-red-700"
+              />
+            </a>
+          </div>
+
+          <form className="flex flex-1 max-w-lg mx-3" onSubmit={(e) => e.preventDefault()}>
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar videos…"
-              className="flex-1 px-3 py-1.5 bg-black border border-red-700 rounded-l text-white text-sm outline-none focus:border-red-500 placeholder-gray-500"
+              className="ny-input flex-1 px-3 py-1.5 bg-black border border-red-700 rounded-l text-white text-sm outline-none focus:border-red-500 placeholder-gray-500 transition-colors"
             />
             <button
               type="submit"
-              className="px-4 py-1.5 bg-red-700 hover:bg-red-600 text-white text-sm rounded-r transition-colors"
+              className="px-3 py-1.5 bg-red-700 hover:bg-red-600 text-white text-sm rounded-r transition-colors"
             >
               Buscar
             </button>
           </form>
 
-          {user ? (
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Toggle tema */}
             <button
-              onClick={() => setShowProfile(true)}
-              className="flex items-center gap-2 flex-shrink-0 group"
-              title="Ver mi perfil"
+              onClick={() => setDarkMode((d) => !d)}
+              title={darkMode ? "Modo claro" : "Modo oscuro"}
+              className="w-8 h-8 rounded-full flex items-center justify-center text-base hover:bg-red-900/40 transition-colors"
             >
-              <span className="text-xs text-gray-400 hidden sm:block truncate max-w-[100px] group-hover:text-white transition-colors">
-                {user.displayName ?? user.email}
-              </span>
-              <Avatar user={user} size="sm" />
+              {darkMode ? "☀️" : "🌙"}
             </button>
-          ) : (
-            <button
-              onClick={() => setShowAuth(true)}
-              className="flex-shrink-0 px-4 py-1.5 bg-red-700 hover:bg-red-600 text-white text-sm font-semibold rounded transition-colors"
-            >
-              Iniciar sesión
-            </button>
-          )}
+
+            {user ? (
+              <button
+                onClick={() => setShowProfile(true)}
+                className="flex items-center gap-2 group"
+                title="Ver mi perfil"
+              >
+                <span className="text-xs text-gray-400 hidden sm:block truncate max-w-[100px] group-hover:text-white transition-colors">
+                  {user.displayName ?? user.email}
+                </span>
+                <Avatar user={user} size="sm" />
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowAuth(true)}
+                className="px-3 py-1.5 bg-red-700 hover:bg-red-600 text-white text-sm font-semibold rounded transition-colors"
+              >
+                <span className="hidden sm:inline">Iniciar sesión</span>
+                <span className="sm:hidden">Entrar</span>
+              </button>
+            )}
+          </div>
         </header>
 
         {/* ── Nav ── */}
-        <nav className="flex flex-wrap bg-[#111] border-b border-red-700 px-2 py-1">
+        <nav className={`ny-nav bg-[#111] border-b border-red-700 px-2 py-1 transition-colors ${mobileMenuOpen ? "flex flex-col" : "hidden sm:flex sm:flex-wrap"}`}>
           {NAV_LINKS.map((link) => (
             <a
               key={link.href}
               href={link.href}
-              className="px-3 py-2 text-white text-xs font-semibold hover:bg-red-700 transition-colors"
+              onClick={() => setMobileMenuOpen(false)}
+              className="px-3 py-2 text-white text-xs font-semibold hover:bg-red-700 transition-colors rounded"
             >
               {link.label}
             </a>
