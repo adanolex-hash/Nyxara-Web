@@ -45,6 +45,7 @@ interface VideoDoc {
   displayName: string;
   views: number;
   likes: number;
+  category: string;
   createdAt: { seconds: number } | null;
 }
 
@@ -83,7 +84,8 @@ const GRADIENTS = [
 
 const NAV_LINKS = [
   { label: "INICIO", href: "#inicio" },
-  { label: "LO MEJOR", href: "#mejor" },
+  { label: "TENDENCIAS", href: "#tendencias" },
+  { label: "VIDEOS", href: "#mejor" },
   { label: "CATEGORÍAS", href: "#categorias" },
   { label: "IMÁGENES", href: "#imagenes" },
   { label: "SUBIR VIDEO", href: "#subir" },
@@ -91,6 +93,22 @@ const NAV_LINKS = [
   { label: "PRIVACIDAD", href: "#privacidad" },
   { label: "COOKIES", href: "#cookies" },
 ];
+
+const CATEGORIES = [
+  "Todas",
+  "Pareja",
+  "Solo",
+  "Lésbico",
+  "Gay",
+  "Trans",
+  "Fetiche",
+  "BDSM",
+  "Amateur",
+  "Profesional",
+  "Otros",
+];
+
+const PAGE_SIZE = 12;
 
 // ─── Age Gate ─────────────────────────────────────────────────────────────────
 
@@ -820,6 +838,7 @@ function VideoModal({
 function UploadForm({ user }: { user: User | null }) {
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
+  const [category, setCategory] = useState("Amateur");
   const [errors, setErrors] = useState<{ title?: string; desc?: string; file?: string; auth?: string }>({});
   const [progress, setProgress] = useState<number | null>(null);
   const [success, setSuccess] = useState(false);
@@ -886,6 +905,8 @@ function UploadForm({ user }: { user: User | null }) {
             uploadedBy: user.uid,
             displayName: user.displayName ?? user.email ?? "Usuario",
             views: 0,
+            likes: 0,
+            category,
             createdAt: serverTimestamp(),
           });
 
@@ -893,6 +914,7 @@ function UploadForm({ user }: { user: User | null }) {
           setSuccess(true);
           setTitle("");
           setDesc("");
+          setCategory("Amateur");
           if (fileRef.current) fileRef.current.value = "";
           if (thumbRef.current) thumbRef.current.value = "";
         }
@@ -945,6 +967,18 @@ function UploadForm({ user }: { user: User | null }) {
               className={`w-full px-3 py-2 bg-[#050505] border rounded text-white text-sm outline-none focus:border-red-600 transition-colors resize-none ${errors.desc ? "border-red-500" : "border-[#444]"}`}
             />
             {errors.desc && <p className="text-xs text-red-400 mt-1">{errors.desc}</p>}
+          </div>
+          <div>
+            <label className="block text-sm text-gray-300 mb-1">Categoría</label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="w-full px-3 py-2 bg-[#050505] border border-[#444] rounded text-white text-sm outline-none focus:border-red-600 transition-colors"
+            >
+              {CATEGORIES.filter((c) => c !== "Todas").map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-sm text-gray-300 mb-1">Archivo de video (MP4, WEBM u OGG)</label>
@@ -1311,6 +1345,9 @@ export default function App() {
   const [imageModal, setImageModal] = useState<{ src: string; alt: string } | null>(null);
   const [videoModal, setVideoModal] = useState<VideoDoc | null>(null);
   const [search, setSearch] = useState("");
+  const [activeCategory, setActiveCategory] = useState("Todas");
+  const [sortBy, setSortBy] = useState<"recientes" | "vistos" | "likes">("recientes");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [user, setUser] = useState<User | null>(null);
   const [videos, setVideos] = useState<VideoDoc[]>([]);
   const [loadingVideos, setLoadingVideos] = useState(true);
@@ -1333,9 +1370,31 @@ export default function App() {
     return unsub;
   }, []);
 
-  const filtered = search.trim()
-    ? videos.filter((v) => v.title.toLowerCase().includes(search.trim().toLowerCase()))
-    : videos;
+  // Reset visibleCount cuando cambia filtro/categoría/sort
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [search, activeCategory, sortBy]);
+
+  // Tendencias: top 6 por likes en la última semana
+  const oneWeekAgo = Math.floor(Date.now() / 1000) - 7 * 86400;
+  const trending = [...videos]
+    .filter((v) => (v.likes ?? 0) > 0 && v.createdAt && v.createdAt.seconds > oneWeekAgo)
+    .sort((a, b) => (b.likes ?? 0) - (a.likes ?? 0))
+    .slice(0, 6);
+
+  // Feed filtrado + ordenado
+  const filtered = videos
+    .filter((v) => {
+      const matchSearch = !search.trim() || v.title.toLowerCase().includes(search.trim().toLowerCase()) || v.description?.toLowerCase().includes(search.trim().toLowerCase());
+      const matchCat = activeCategory === "Todas" || (v.category ?? "Otros") === activeCategory;
+      return matchSearch && matchCat;
+    })
+    .sort((a, b) => {
+      if (sortBy === "likes") return (b.likes ?? 0) - (a.likes ?? 0);
+      if (sortBy === "vistos") return (b.views ?? 0) - (a.views ?? 0);
+      return (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0);
+    });
+
+  const visible = filtered.slice(0, visibleCount);
+  const hasMore = visibleCount < filtered.length;
 
   const year = new Date().getFullYear();
 
@@ -1443,11 +1502,102 @@ export default function App() {
             </p>
           </section>
 
+          {/* ── Tendencias ── */}
+          <section id="tendencias" className="px-4 pb-6 border-t border-red-950">
+            <div className="flex items-center gap-2 mb-4 pt-6">
+              <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+              </svg>
+              <h2 className="text-lg font-bold text-red-600 uppercase tracking-wide">Tendencias esta semana</h2>
+            </div>
+
+            {loadingVideos ? (
+              <div className="flex gap-3 overflow-x-auto pb-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex-shrink-0 w-44 bg-[#111] rounded animate-pulse">
+                    <div className="h-24 bg-[#1a1a1a] rounded-t" />
+                    <div className="p-2"><div className="h-3 bg-[#222] rounded w-4/5 mb-1" /><div className="h-2 bg-[#1a1a1a] rounded w-3/5" /></div>
+                  </div>
+                ))}
+              </div>
+            ) : trending.length === 0 ? (
+              <p className="text-gray-600 text-sm py-4 text-center">
+                Aún no hay tendencias. ¡Los videos con más likes aparecerán aquí!
+              </p>
+            ) : (
+              <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin">
+                {trending.map((video, i) => (
+                  <article
+                    key={video.id}
+                    onClick={() => setVideoModal(video)}
+                    className="flex-shrink-0 w-44 bg-[#111] rounded overflow-hidden cursor-pointer group hover:-translate-y-1 transition-all"
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = "0 0 12px rgba(204,0,0,0.5)"; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = "none"; }}
+                  >
+                    <div className={`relative h-24 bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]}`}>
+                      {video.thumbUrl && <img src={video.thumbUrl} alt={video.title} className="absolute inset-0 w-full h-full object-cover" />}
+                      <div className="absolute top-1 left-1 bg-red-700 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">
+                        #{i + 1}
+                      </div>
+                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="w-8 h-8 rounded-full bg-black/70 flex items-center justify-center">
+                          <svg className="w-4 h-4 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="p-2">
+                      <h3 className="text-xs font-semibold text-white leading-snug line-clamp-2 mb-1">{video.title}</h3>
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <span className="flex items-center gap-0.5 text-red-500">
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>
+                          {video.likes}
+                        </span>
+                        <span>{video.views.toLocaleString()} vistas</span>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+
           {/* ── Feed de Videos ── */}
-          <section id="mejor" className="px-4 pb-8">
-            <h2 className="text-lg font-bold text-red-600 mb-4 uppercase tracking-wide">
-              {search.trim() ? `Resultados para "${search}"` : "Videos recomendados"}
-            </h2>
+          <section id="mejor" className="px-4 pb-8 border-t border-red-950 pt-6">
+            {/* Título + Sort */}
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <h2 className="text-lg font-bold text-red-600 uppercase tracking-wide">
+                {search.trim()
+                  ? `Resultados para "${search}"`
+                  : activeCategory !== "Todas"
+                    ? activeCategory
+                    : "Todos los videos"}
+                {!loadingVideos && <span className="text-sm font-normal text-gray-500 ml-2">({filtered.length})</span>}
+              </h2>
+              <div className="flex gap-1">
+                {(["recientes", "vistos", "likes"] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setSortBy(s)}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded transition-colors ${sortBy === s ? "bg-red-700 text-white" : "bg-[#1a1a1a] text-gray-400 hover:text-white"}`}
+                  >
+                    {s === "recientes" ? "Recientes" : s === "vistos" ? "Más vistos" : "Más likes"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Chips de categoría */}
+            <div id="categorias" className="flex gap-2 overflow-x-auto pb-3 mb-4 scrollbar-thin">
+              {CATEGORIES.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCategory(cat)}
+                  className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-all ${activeCategory === cat ? "bg-red-700 text-white" : "bg-[#1a1a1a] text-gray-400 hover:bg-[#2a2a2a] hover:text-white border border-[#333]"}`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
 
             {loadingVideos ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
@@ -1462,66 +1612,79 @@ export default function App() {
                 ))}
               </div>
             ) : filtered.length === 0 ? (
-              <p className="text-gray-500 text-sm py-12 text-center">
-                {videos.length === 0
-                  ? "Todavía no hay videos. ¡Sube el primero!"
-                  : "No se encontraron videos."}
-              </p>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
-                {filtered.map((video, i) => (
-                  <article
-                    key={video.id}
-                    className="bg-[#111] rounded overflow-hidden cursor-pointer group transition-all hover:-translate-y-1"
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLElement).style.boxShadow =
-                        "0 0 14px rgba(204,0,0,0.55)";
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLElement).style.boxShadow = "none";
-                    }}
+              <div className="text-center py-12">
+                <p className="text-gray-500 text-sm">
+                  {videos.length === 0
+                    ? "Todavía no hay videos. ¡Sube el primero!"
+                    : "No se encontraron videos con estos filtros."}
+                </p>
+                {(search.trim() || activeCategory !== "Todas") && (
+                  <button
+                    onClick={() => { setSearch(""); setActiveCategory("Todas"); }}
+                    className="mt-3 text-xs text-red-500 hover:underline"
                   >
-                    <div
-                      className={`relative h-28 bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]}`}
-                      onClick={() => setVideoModal(video)}
+                    Limpiar filtros
+                  </button>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+                  {visible.map((video, i) => (
+                    <article
+                      key={video.id}
+                      className="bg-[#111] rounded overflow-hidden cursor-pointer group transition-all hover:-translate-y-1"
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = "0 0 14px rgba(204,0,0,0.55)"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = "none"; }}
                     >
-                      {video.thumbUrl && (
-                        <img
-                          src={video.thumbUrl}
-                          alt={video.title}
-                          className="absolute inset-0 w-full h-full object-cover"
-                        />
-                      )}
-                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                        <div className="w-10 h-10 rounded-full bg-black/70 flex items-center justify-center">
-                          <svg className="w-5 h-5 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M8 5v14l11-7z" />
-                          </svg>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="p-2" onClick={() => setVideoModal(video)}>
-                      <h3 className="text-xs font-semibold text-white leading-snug line-clamp-2 mb-1">
-                        {video.title}
-                      </h3>
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs text-gray-400">
-                          {video.views.toLocaleString()} vistas ·{" "}
-                          {video.createdAt ? timeAgo(video.createdAt.seconds) : "reciente"}
-                        </p>
-                        {(video.likes ?? 0) > 0 && (
-                          <span className="flex items-center gap-0.5 text-xs text-red-500">
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-                            </svg>
-                            {video.likes}
+                      <div
+                        className={`relative h-28 bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]}`}
+                        onClick={() => setVideoModal(video)}
+                      >
+                        {video.thumbUrl && (
+                          <img src={video.thumbUrl} alt={video.title} className="absolute inset-0 w-full h-full object-cover" />
+                        )}
+                        {video.category && video.category !== "Otros" && (
+                          <span className="absolute bottom-1 left-1 bg-black/70 text-gray-300 text-[9px] px-1.5 py-0.5 rounded">
+                            {video.category}
                           </span>
                         )}
+                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="w-10 h-10 rounded-full bg-black/70 flex items-center justify-center">
+                            <svg className="w-5 h-5 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </article>
-                ))}
-              </div>
+                      <div className="p-2" onClick={() => setVideoModal(video)}>
+                        <h3 className="text-xs font-semibold text-white leading-snug line-clamp-2 mb-1">{video.title}</h3>
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs text-gray-400">
+                            {video.views.toLocaleString()} vistas · {video.createdAt ? timeAgo(video.createdAt.seconds) : "reciente"}
+                          </p>
+                          {(video.likes ?? 0) > 0 && (
+                            <span className="flex items-center gap-0.5 text-xs text-red-500">
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>
+                              {video.likes}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+
+                {/* Cargar más */}
+                {hasMore && (
+                  <div className="text-center mt-8">
+                    <button
+                      onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+                      className="px-8 py-2.5 bg-[#111] hover:bg-red-900/20 border border-red-800 hover:border-red-600 text-red-500 hover:text-red-400 font-semibold rounded text-sm transition-all"
+                    >
+                      Cargar más ({filtered.length - visibleCount} restantes)
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </section>
 
