@@ -60,7 +60,35 @@ interface CommentDoc {
   reported: boolean;
 }
 
+interface NotifDoc {
+  id: string;
+  type: "like" | "comment";
+  fromUid: string;
+  fromName: string;
+  videoId: string;
+  videoTitle: string;
+  text?: string;
+  read: boolean;
+  createdAt: { seconds: number } | null;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+async function createNotification(
+  ownerUid: string,
+  payload: Omit<NotifDoc, "id" | "read" | "createdAt">
+) {
+  if (ownerUid === payload.fromUid) return; // no notificar al propio autor
+  try {
+    await addDoc(collection(db, "notifications", ownerUid, "items"), {
+      ...payload,
+      read: false,
+      createdAt: serverTimestamp(),
+    });
+  } catch {
+    // silencioso — las notificaciones son best-effort
+  }
+}
 
 function timeAgo(seconds: number): string {
   const diff = Math.floor(Date.now() / 1000) - seconds;
@@ -648,6 +676,13 @@ function VideoModal({
         await updateDoc(videoRef, { likes: increment(1) });
         setLikeCount((n) => n + 1);
         setLiked(true);
+        createNotification(video.uploadedBy, {
+          type: "like",
+          fromUid: user.uid,
+          fromName: user.displayName ?? user.email ?? "Alguien",
+          videoId: video.id,
+          videoTitle: video.title,
+        });
       }
     } finally {
       setLiking(false);
@@ -687,6 +722,14 @@ function VideoModal({
         text,
         createdAt: serverTimestamp(),
         reported: false,
+      });
+      createNotification(video.uploadedBy, {
+        type: "comment",
+        fromUid: user.uid,
+        fromName: user.displayName ?? user.email ?? "Alguien",
+        videoId: video.id,
+        videoTitle: video.title,
+        text,
       });
       setCommentText("");
     } finally {
@@ -837,6 +880,106 @@ function VideoModal({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Notification Bell ────────────────────────────────────────────────────────
+
+function NotificationBell({
+  notifs,
+  onMarkRead,
+  onOpenVideo,
+}: {
+  notifs: NotifDoc[];
+  onMarkRead: (id: string) => void;
+  onOpenVideo: (videoId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const unread = notifs.filter((n) => !n.read).length;
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Cerrar al hacer clic fuera
+  useEffect(() => {
+    function handle(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    if (open) document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [open]);
+
+  function handleOpen() {
+    setOpen((o) => !o);
+  }
+
+  function handleClickNotif(n: NotifDoc) {
+    if (!n.read) onMarkRead(n.id);
+    setOpen(false);
+    onOpenVideo(n.videoId);
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={handleOpen}
+        title="Notificaciones"
+        className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-red-900/40 transition-colors relative"
+      >
+        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+        </svg>
+        {unread > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-600 rounded-full text-[10px] font-bold text-white flex items-center justify-center animate-pulse">
+            {unread > 9 ? "9+" : unread}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-10 w-80 bg-[#111] border border-[#2a2a2a] rounded-lg shadow-2xl z-[9999] animate-slide-down overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e1e]">
+            <span className="text-white text-sm font-bold">Notificaciones</span>
+            {unread > 0 && (
+              <span className="text-xs text-red-400">{unread} sin leer</span>
+            )}
+          </div>
+
+          {notifs.length === 0 ? (
+            <div className="px-4 py-8 text-center">
+              <svg className="w-8 h-8 text-gray-700 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+              </svg>
+              <p className="text-gray-600 text-xs">Sin notificaciones aún.</p>
+            </div>
+          ) : (
+            <div className="max-h-80 overflow-y-auto">
+              {notifs.map((n) => (
+                <button
+                  key={n.id}
+                  onClick={() => handleClickNotif(n)}
+                  className={`w-full flex gap-3 items-start px-4 py-3 border-b border-[#1a1a1a] last:border-0 text-left transition-colors ${n.read ? "hover:bg-[#161616]" : "bg-red-950/20 hover:bg-red-950/30"}`}
+                >
+                  <span className="text-lg flex-shrink-0 mt-0.5">{n.type === "like" ? "❤️" : "💬"}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-gray-300 leading-relaxed">
+                      <span className="font-semibold text-white">{n.fromName}</span>
+                      {n.type === "like" ? " le dio like a" : " comentó en"}{" "}
+                      <span className="text-red-400 font-semibold truncate">{n.videoTitle}</span>
+                    </p>
+                    {n.type === "comment" && n.text && (
+                      <p className="text-xs text-gray-500 truncate mt-0.5">"{n.text}"</p>
+                    )}
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      {n.createdAt ? timeAgo(n.createdAt.seconds) : "ahora"}
+                    </p>
+                  </div>
+                  {!n.read && <span className="w-2 h-2 bg-red-500 rounded-full flex-shrink-0 mt-1.5" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1514,6 +1657,7 @@ export default function App() {
   const [imageModal, setImageModal] = useState<{ src: string; alt: string } | null>(null);
   const [videoModal, setVideoModal] = useState<VideoDoc | null>(null);
   const [creatorModal, setCreatorModal] = useState<{ uid: string; displayName: string } | null>(null);
+  const [notifs, setNotifs] = useState<NotifDoc[]>([]);
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("Todas");
   const [sortBy, setSortBy] = useState<"recientes" | "vistos" | "likes">("recientes");
@@ -1535,6 +1679,32 @@ export default function App() {
     const unsub = onAuthStateChanged(auth, (u) => setUser(u));
     return unsub;
   }, []);
+
+  // Notificaciones en tiempo real — solo si hay usuario
+  useEffect(() => {
+    if (!user) { setNotifs([]); return; }
+    const q = query(
+      collection(db, "notifications", user.uid, "items"),
+      orderBy("createdAt", "desc")
+    );
+    return onSnapshot(q, (snap) => {
+      setNotifs(
+        snap.docs
+          .slice(0, 30)
+          .map((d) => ({ id: d.id, ...(d.data() as Omit<NotifDoc, "id">) }))
+      );
+    });
+  }, [user]);
+
+  async function markNotifRead(notifId: string) {
+    if (!user) return;
+    await updateDoc(doc(db, "notifications", user.uid, "items", notifId), { read: true });
+  }
+
+  function openVideoById(videoId: string) {
+    const v = videos.find((v) => v.id === videoId);
+    if (v) setVideoModal(v);
+  }
 
   // Firestore listener — videos en tiempo real
   useEffect(() => {
@@ -1661,6 +1831,15 @@ export default function App() {
             >
               {darkMode ? "☀️" : "🌙"}
             </button>
+
+            {/* Campana de notificaciones — solo usuarios autenticados */}
+            {user && (
+              <NotificationBell
+                notifs={notifs}
+                onMarkRead={markNotifRead}
+                onOpenVideo={openVideoById}
+              />
+            )}
 
             {user ? (
               <button
